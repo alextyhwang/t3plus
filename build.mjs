@@ -1,6 +1,7 @@
 // Builds the unpacked extension into dist/.
 //   node build.mjs           one build
 //   node build.mjs --watch   rebuild on change (reload the extension in chrome://extensions after)
+//   node build.mjs --public  release build: no feed folder, whatever t3plus.local.json says
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,6 +17,8 @@ const watch = process.argv.includes("--watch");
  * untracked t3plus.local.json, else the .invalid placeholder (no feeds).
  */
 export async function resolveFeedBase() {
+  // --public: the release build, which never carries anyone's feed folder.
+  if (process.argv.includes("--public")) return DEFAULT_FEED_BASE;
   if (process.env.T3PLUS_FEED_BASE) return process.env.T3PLUS_FEED_BASE;
   try {
     const local = JSON.parse(await readFile(join(root, "t3plus.local.json"), "utf8"));

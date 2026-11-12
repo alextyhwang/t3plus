@@ -11,7 +11,8 @@
     "test": "node --test \"test/*.test.js\"",
     "verify": "npm run build && npm test",
     "harness": "node harness/serve.mjs",
-    "screenshots": "node harness/screenshot.mjs"
+    "screenshots": "node harness/screenshot.mjs",
+    "publish:public": "node tools/publish-public.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.25.0",

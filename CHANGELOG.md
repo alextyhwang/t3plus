@@ -2,6 +2,11 @@
 
 Short history of t3+ releases. Details live in README.md; plans in ROADMAP.md.
 
+## Unreleased
+- The repo is developed privately and mirrored here with `npm run publish:public`, which
+  checks for private details and can cut a release (docs/publishing.md).
+- `node build.mjs --public` builds without a feed folder (used for release zips).
+
 ## 0.18.0 (2026-11-12)
 - Ready to publish: a short README with screenshots (docs/images), setup details in
   docs/setup.md, and no personal setup in
