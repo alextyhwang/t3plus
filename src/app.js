@@ -407,8 +407,8 @@ export function createT3Plus(deps) {
 
 
   // ---------- Compact sidebar header ----------
-  // CSS hides T3's logo row (the sidebar's first row, which holds the
-  // "T3 Code home" link) and, while the sidebar is open in a chat, moves T3's
+  // CSS hides T3's logo row (identified by the "T3 Code home" link) and,
+  // while the sidebar is open in a chat, moves T3's
   // own fixed sidebar control ([data-sidebar-control]) to the header, right
   // before the breadcrumbs. Nothing is moved in the DOM: T3 keeps its button,
   // its shortcut and its collapsed layout.

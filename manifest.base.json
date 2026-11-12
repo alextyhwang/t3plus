@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "t3+",
-  "version": "0.18.0",
+  "version": "0.18.1",
   "description": "Personal overlay for the hosted T3 Code web app: profile tabs, bot rows, glass composer. Local preferences only.",
   "minimum_chrome_version": "120",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApPURnjyeWUO8QnTRav2iVjzZq2dtl/kfmDskznOTAawIm1tfo44mmOyjhIpYUEQzHxykuCTMwyHo6EoNtc2c05kvJ463R93tVta8eAqX4y7ObfKOrNQEKCycEUrS48nCWnxxHrIjX1G8dcyhXVzxmLdrtszdzm7UxBhW9hQl/R4gGk6DLzfTZ0SwkP5BG2au6Aq1qbH7OZNvQowgW7JAYPguKzyuIC2jpths6O6NRuoEMfmS7U2O0rObG3/HCa5sUH1nMaTVY8NDvtLH2FOAJ97ffDn0YTcbeTpWXIfNYIdg8hFKvXE9TMCkKAGRTU9HoCzyVoceii/pi5b7vV6TIQIDAQAB",

@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Keep a single release per repository; do not interrupt an upload.
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run verify
+
+  release:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Build and release the correct download
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IS_PRIVATE: ${{ github.event.repository.private }}
+          T3PLUS_FEED_BASE: ${{ secrets.T3PLUS_FEED_BASE }}
+        run: |
+          if [ "$IS_PRIVATE" = true ]; then
+            test -n "$T3PLUS_FEED_BASE" || { echo 'Set the private T3PLUS_FEED_BASE secret first.'; exit 1; }
+            node tools/release.mjs --publish
+          else
+            node tools/release.mjs --public --publish
+          fi
+

@@ -1970,9 +1970,9 @@ html[data-t3plus-home] [data-chat-composer-overlay="true"].items-center {
 
 /* ---------- Compact sidebar header ---------- */
 
-/* T3's logo row (the sidebar's first row, with the "T3 Code home" link) is
-   hidden, so search, filter, new project and new chat are the first row. */
-html[data-t3plus-compact-sidebar] [data-slot="sidebar-inner"] > :first-child:has(a[aria-label="T3 Code home"]) {
+/* Identify T3's logo row by its home link: the profile strip can precede it
+   after a nightly update, so its position among siblings is not stable. */
+html[data-t3plus-compact-sidebar] [data-slot="sidebar-inner"] > :has(a[aria-label="T3 Code home"]) {
   display: none !important;
 }
 
@@ -1990,7 +1990,7 @@ html[data-t3plus-control-in-header] [data-chat-header] {
 /* The new first row (search, filter, new project, new chat) takes the header's
    height and centers its controls, so they line up with T3's sidebar button and
    the breadcrumbs across the top (all centered on the same line). */
-html[data-t3plus-compact-sidebar] [data-slot="sidebar-inner"] > :first-child:has(a[aria-label="T3 Code home"]) + * > :first-child {
+html[data-t3plus-compact-sidebar] [data-slot="sidebar-inner"] > :has(a[aria-label="T3 Code home"]) + * > :first-child {
   min-height: var(--workspace-topbar-height, 52px);
   justify-content: center;
 }

@@ -199,9 +199,39 @@ test("bot rows show one status signal: the face, plus T3's colored label (its st
 });
 
 test("compact sidebar header: hides only T3's logo row and puts T3's own sidebar control before the breadcrumbs", () => {
-  assert.match(css, /\[data-slot="sidebar-inner"\] > :first-child:has\(a\[aria-label="T3 Code home"\]\)\s*\{\s*display:\s*none !important;/);
+  assert.match(css, /\[data-slot="sidebar-inner"\] > :has\(a\[aria-label="T3 Code home"\]\)\s*\{\s*display:\s*none !important;/);
   assert.match(css, /html\[data-t3plus-control-in-header\] \[data-sidebar-control\]\s*\{\s*left: calc\(var\(--t3plus-sidebar-right/);
   assert.match(css, /html\[data-t3plus-control-in-header\] \[data-chat-header\]\s*\{\s*padding-left:/);
+});
+
+test("compact header still hides the logo when the profile strip precedes it", () => {
+  // The nightly sidebar can leave the profile strip ahead of the logo row.
+  // Exercise the shipped CSS against that order, as in the reported layout.
+  const dom = createDom("/env1/a1", `<div data-slot="sidebar-inner">
+    <nav id="t3plus-profilebar">All Work Personal</nav>
+    <div id="logo-row"><div><a aria-label="T3 Code home" href="/">T3 Code</a></div></div>
+    <div id="search-row"><div data-slot="sidebar-group"><input aria-label="Search threads"></div></div>
+    <div data-slot="sidebar-content">Threads</div>
+    <div data-slot="sidebar-footer">Settings</div>
+  </div>`);
+  try {
+    const doc = dom.window.document;
+    const style = doc.createElement("style");
+    style.textContent = css.split("/* ---------- Compact sidebar header ---------- */")[1]
+      .split("/* ---------- Title-first thread rows ----------")[0];
+    doc.head.append(style);
+    doc.documentElement.setAttribute(T3PLUS.compactAttr, "");
+    const display = (selector) => dom.window.getComputedStyle(doc.querySelector(selector)).display;
+    assert.equal(display("#logo-row"), "none", "logo stays hidden after the profile strip");
+    for (const selector of ["#t3plus-profilebar", "#search-row", '[data-slot="sidebar-content"]', '[data-slot="sidebar-footer"]']) {
+      assert.notEqual(display(selector), "none", `${selector} remains visible`);
+    }
+    assert.equal(dom.window.getComputedStyle(doc.querySelector('[data-slot="sidebar-group"]')).justifyContent, "center", "search controls keep their topbar alignment");
+    doc.documentElement.removeAttribute(T3PLUS.compactAttr);
+    assert.notEqual(display("#logo-row"), "none", "turning compact header off restores the logo");
+  } finally {
+    dom.window.close();
+  }
 });
 
 test("compact sidebar header follows T3's sidebar state and the setting", async () => {

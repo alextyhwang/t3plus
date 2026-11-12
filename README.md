@@ -39,7 +39,7 @@ T3 changes often, so an update can break part of it until it's fixed here.
 
 ## Install
 
-1. Download `t3plus-v0.18.0.zip` from the
+1. Download `t3plus-v0.18.1.zip` from the
    [latest release](https://github.com/alextyhwang/t3plus/releases/latest) and unzip it.
 2. Open `chrome://extensions` (or the same page in another Chromium browser) and turn on
    Developer mode.
@@ -83,6 +83,8 @@ CHROME=/path/to/chrome npm run screenshots   # renders harness scenarios to harn
 
 Every T3 selector t3+ depends on is in `src/config.js`. When T3 changes its markup, start
 there. Changes are in [CHANGELOG.md](CHANGELOG.md) and plans in [ROADMAP.md](ROADMAP.md).
+Versioned downloads are built by GitHub Actions; the private-to-public snapshot policy
+and release setup are described in [docs/publishing.md](docs/publishing.md).
 
 ## License
 

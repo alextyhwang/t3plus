@@ -3,6 +3,15 @@
 Short history of t3+ releases. Details live in README.md; plans in ROADMAP.md.
 
 ## Unreleased
+
+## 0.18.1 (2026-11-12)
+- GitHub Actions builds versioned downloads in both repositories. Private releases
+  include the configured feeds. Public publishing is an explicit workflow choice;
+  it triggers a public release built without personal feeds.
+- Publishing exports only allowed source paths and scans for private details.
+  Private files and commit history stay in the private repository.
+- Compact sidebar: keep the T3 Code logo hidden and search controls aligned when
+  the profile strip precedes the logo after a nightly update.
 - The repo is developed privately and mirrored here with `npm run publish:public`, which
   checks for private details and can cut a release (docs/publishing.md).
 - `node build.mjs --public` builds without a feed folder (used for release zips).
