@@ -20,14 +20,38 @@ export function findSidebarInner(doc) {
 /**
  * Where the profile bar goes: directly above the scroll area root that holds
  * the sidebar content, i.e. right under T3's fixed header (search, new thread).
+ * T3 may render the header and the list straight in sidebar-inner or inside a
+ * wrapper, so climb from the content only while it is the first child (the
+ * scroll area's own wrappers) and stop at the first node with a row before it.
  * @returns {{ parent: Element, before: Element } | null}
  */
 export function findProfileBarSlot(inner) {
   const content = inner?.querySelector(T3_SELECTORS.sidebarContent);
   if (!content) return null;
+  const isBar = (el) => el?.id === T3PLUS.profileBarId;
+  const previous = (el) => {
+    let prev = el.previousElementSibling;
+    while (isBar(prev)) prev = prev.previousElementSibling;
+    return prev;
+  };
   let node = content;
-  while (node.parentElement && node.parentElement !== inner) node = node.parentElement;
-  return node.parentElement === inner ? { parent: inner, before: node } : null;
+  while (node.parentElement && node.parentElement !== inner && !previous(node)) node = node.parentElement;
+  return inner.contains(node.parentElement) ? { parent: node.parentElement, before: node } : null;
+}
+
+/**
+ * T3's logo row: the outermost wrapper of the "T3 Code home" link that holds
+ * no other part of the sidebar (search row, list). Found by containment, not
+ * position, so a wrapper or the profile strip around it cannot widen it to the
+ * whole sidebar or make it miss.
+ */
+export function findLogoRow(inner) {
+  const link = inner?.querySelector(T3_SELECTORS.homeLink);
+  if (!link) return null;
+  const other = `${T3_SELECTORS.sidebarGroup}, ${T3_SELECTORS.sidebarContent}, #${T3PLUS.profileBarId}`;
+  let node = link;
+  while (node.parentElement && node.parentElement !== inner && !node.parentElement.querySelector(other)) node = node.parentElement;
+  return node.parentElement ? node : null;
 }
 
 /**

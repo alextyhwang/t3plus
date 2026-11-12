@@ -4,6 +4,12 @@ Short history of t3+ releases. Details live in README.md; plans in ROADMAP.md.
 
 ## Unreleased
 
+## 0.18.2 (2026-11-12)
+- Compact sidebar: fix an empty sidebar after the latest nightly. When T3 wraps the
+  header, search and thread list in one block, t3+ hid the whole block because it
+  holds the logo. t3+ now hides only the logo row itself and keeps the profile strip
+  right above the thread list.
+
 ## 0.18.1 (2026-11-12)
 - GitHub Actions builds versioned downloads in both repositories. Private releases
   include the configured feeds. Public publishing is an explicit workflow choice;

@@ -13,6 +13,7 @@ import {
   tokenSeries,
 } from "../src/homeData.js";
 import { T3PLUS } from "../src/config.js";
+import { createTooltip } from "../src/homeTooltip.js";
 import { HEAT_WEEKS } from "../src/homeWidgets.js";
 import { createApp, createDom, createFakeChromeStorage, createFakeRemote } from "./helpers.js";
 
@@ -269,10 +270,25 @@ test("hover: a T3-style tooltip for heatmap days and chart points, a crosshair, 
   assert.equal(doc.getElementById("t3plus-tip"), null, "removed when t3+ stops");
 });
 
+test("tooltip skips null rows instead of exposing a literal null", () => {
+  const dom = createDom("/draft/abc", "");
+  const tip = createTooltip(dom.window.document);
+  tip.show(
+    { x: 40, top: 80, bottom: 100 },
+    { label: "2:17 PM", rows: [{ name: "Left", value: "293% of 600" }, { name: null, value: null }, { name: "null", value: "null" }] },
+  );
+  assert.equal(dom.window.document.getElementById("t3plus-tip").textContent, "2:17 PMLeft293% of 600");
+});
+
 test("the glow slide is quick (150 ms) and the watcher skips its throttle right after a navigation", async () => {
   const { readFile } = await import("node:fs/promises");
   const css = await readFile(new URL("../src/styles/content.css", import.meta.url), "utf8");
+  const appSource = await readFile(new URL("../src/app.js", import.meta.url), "utf8");
   assert.match(css, /--t3plus-glow-x 150ms/);
+  assert.match(css, /\.t3plus-home\s*\{[\s\S]*max-width: calc\(100vw - 1rem\)/);
+  assert.match(css, /\.t3plus-w-now-label\s*\{[\s\S]*bottom: calc\(100% - 0\.375rem\)/);
+  assert.match(css, /\.t3plus-details-pool \.t3plus-w-pool-head\s*\{[\s\S]*flex-wrap: wrap/);
+  assert.match(appSource, /Math\.max\(0, Math\.min\(s\.width, room\)\)/);
   const { createDomWatcher } = await import("../src/domWatcher.js");
   const dom = createDom("/", "<div></div>");
   let runs = 0;

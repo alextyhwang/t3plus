@@ -1,6 +1,6 @@
 {
   "name": "t3plus",
-  "version": "0.18.1",
+  "version": "0.18.2",
   "private": true,
   "license": "PolyForm-Noncommercial-1.0.0",
   "description": "t3+: a Chrome extension that adds a glow, glass composer, usage widgets, bots, profiles and a screenshot mode to the T3 Code web app",

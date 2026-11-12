@@ -34,6 +34,7 @@ import {
   applyProfileVisibility,
   clearProfileVisibility,
   computeProfileVisibility,
+  findLogoRow,
   findProfileBarSlot,
   findSidebarInner,
   isThreadInProfile,
@@ -323,7 +324,7 @@ export function createT3Plus(deps) {
       const center = s.left + s.width / 2;
       const room = 2 * Math.min(center - p.left, p.left + p.width - center) - 48;
       // As wide as T3's composer (the stack), within the room on its narrower side.
-      setRootVar("--t3plus-home-width", `${Math.round(Math.max(320, Math.min(s.width, room)))}px`);
+      setRootVar("--t3plus-home-width", `${Math.round(Math.max(0, Math.min(s.width, room)))}px`);
     }
     // Place the whole hero block (headline, composer, widgets) a little above
     // the pane's middle: 35% of the spare height above it, 65% below. That is
@@ -407,8 +408,9 @@ export function createT3Plus(deps) {
 
 
   // ---------- Compact sidebar header ----------
-  // CSS hides T3's logo row (identified by the "T3 Code home" link) and,
-  // while the sidebar is open in a chat, moves T3's
+  // t3+ marks T3's logo row (the "T3 Code home" link's own wrapper, see
+  // findLogoRow) and CSS hides it; while the sidebar is open in a chat, CSS
+  // also moves T3's
   // own fixed sidebar control ([data-sidebar-control]) to the header, right
   // before the breadcrumbs. Nothing is moved in the DOM: T3 keeps its button,
   // its shortcut and its collapsed layout.
@@ -419,6 +421,9 @@ export function createT3Plus(deps) {
     const on = state.settings.sidebar.compactHeader;
     root.toggleAttribute(T3PLUS.compactAttr, on);
     root.toggleAttribute(T3PLUS.titleFirstAttr, state.settings.sidebar.titleFirst);
+    const logoRows = new Set([...doc.querySelectorAll(T3_SELECTORS.sidebarInner)].map(findLogoRow).filter(Boolean));
+    for (const el of doc.querySelectorAll(`[${T3PLUS.logoRowAttr}]`)) if (!logoRows.has(el)) el.removeAttribute(T3PLUS.logoRowAttr);
+    for (const el of logoRows) if (!el.hasAttribute(T3PLUS.logoRowAttr)) el.setAttribute(T3PLUS.logoRowAttr, "");
     const wrapper = doc.querySelector('[data-slot="sidebar-wrapper"]');
     const inner = findSidebarInner(doc) ?? doc.querySelector(T3_SELECTORS.sidebarInner);
     const right = inner?.getBoundingClientRect().right ?? 0;

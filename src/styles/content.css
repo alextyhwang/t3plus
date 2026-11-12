@@ -1419,6 +1419,8 @@ html[data-t3plus-home] [data-chat-composer-overlay="true"].items-center {
   top: calc(100% + 1rem);
   left: 50%;
   width: var(--t3plus-home-width, 46rem);
+  max-width: calc(100vw - 1rem);
+  box-sizing: border-box;
   max-height: var(--t3plus-home-max-height, 24rem);
   transform: translateX(-50%);
   display: grid;
@@ -1658,7 +1660,7 @@ html[data-t3plus-home] [data-chat-composer-overlay="true"].items-center {
 
 .t3plus-w-now-label {
   top: auto;
-  bottom: calc(100% + 0.125rem);
+  bottom: calc(100% - 0.375rem);
   text-transform: uppercase;
   letter-spacing: 0.02em;
 }
@@ -1970,9 +1972,10 @@ html[data-t3plus-home] [data-chat-composer-overlay="true"].items-center {
 
 /* ---------- Compact sidebar header ---------- */
 
-/* Identify T3's logo row by its home link: the profile strip can precede it
-   after a nightly update, so its position among siblings is not stable. */
-html[data-t3plus-compact-sidebar] [data-slot="sidebar-inner"] > :has(a[aria-label="T3 Code home"]) {
+/* T3's logo row, marked by t3+ (findLogoRow: the home link's outermost wrapper
+   that holds nothing else). Never match by :has(home link) on sidebar-inner's
+   children: T3 can wrap the whole sidebar in one child, which would hide it all. */
+html[data-t3plus-compact-sidebar] [data-t3plus-logo-row] {
   display: none !important;
 }
 
@@ -1990,7 +1993,7 @@ html[data-t3plus-control-in-header] [data-chat-header] {
 /* The new first row (search, filter, new project, new chat) takes the header's
    height and centers its controls, so they line up with T3's sidebar button and
    the breadcrumbs across the top (all centered on the same line). */
-html[data-t3plus-compact-sidebar] [data-slot="sidebar-inner"] > :has(a[aria-label="T3 Code home"]) + * > :first-child {
+html[data-t3plus-compact-sidebar] [data-t3plus-logo-row] + * > :first-child {
   min-height: var(--workspace-topbar-height, 52px);
   justify-content: center;
 }
@@ -2149,10 +2152,17 @@ html[data-t3plus-home] [data-thread-details-card] section[aria-label="Usage limi
 .t3plus-details-pool .t3plus-w-pool-head {
   gap: 0.3rem;
   font-size: 0.6875rem;
-  white-space: nowrap;
+  flex-wrap: wrap;
 }
 .t3plus-details-pool .t3plus-w-pool-head > * {
   white-space: nowrap;
+}
+.t3plus-details-pool .t3plus-w-pool-head .t3plus-w-next {
+  flex: 1 1 100%;
+  min-width: 0;
+  margin-left: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .t3plus-details-pool .t3plus-w-big-num {
   font-size: 1.125rem;

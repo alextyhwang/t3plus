@@ -39,18 +39,17 @@ export function createTooltip(doc) {
      */
     show(anchor, content) {
       if (!el.isConnected) doc.body.append(el);
-      const rows = (content.rows ?? []).map((r) =>
-        h("div", { class: "t3plus-tip-row" }, [
-          h("span", { class: "t3plus-tip-name" }, [r.color ? h("span", { class: "t3plus-tip-swatch", style: `background:${r.color}` }) : null, r.name]),
-          h("span", { class: "t3plus-tip-value", text: r.value }),
-        ]));
-      el.replaceChildren(
-        h("div", { class: "t3plus-tip-label", text: content.label }),
-        ...rows,
-        content.total
-          ? h("div", { class: "t3plus-tip-row t3plus-tip-total" }, [h("span", { class: "t3plus-tip-name", text: content.total.name }), h("span", { class: "t3plus-tip-value", text: content.total.value })])
-          : null,
-      );
+      const rows = (content.rows ?? [])
+        .filter((r) => r && r.name != null && r.value != null && r.name !== "null" && r.value !== "null")
+        .map((r) =>
+          h("div", { class: "t3plus-tip-row" }, [
+            h("span", { class: "t3plus-tip-name" }, [r.color ? h("span", { class: "t3plus-tip-swatch", style: `background:${r.color}` }) : null, r.name]),
+            h("span", { class: "t3plus-tip-value", text: r.value }),
+          ]));
+      const total = content.total && content.total.name != null && content.total.value != null && content.total.name !== "null" && content.total.value !== "null" ? content.total : null;
+      const children = [h("div", { class: "t3plus-tip-label", text: content.label }), ...rows];
+      if (total) children.push(h("div", { class: "t3plus-tip-row t3plus-tip-total" }, [h("span", { class: "t3plus-tip-name", text: total.name }), h("span", { class: "t3plus-tip-value", text: total.value })]));
+      el.replaceChildren(...children);
       if (!open) {
         // First show: appear in place (no glide from the last spot), then animate in.
         el.setAttribute("data-instant", "");

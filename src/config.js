@@ -51,6 +51,10 @@ export const T3_SELECTORS = Object.freeze({
   sidebarInner: '[data-slot="sidebar-inner"]',
   /** Scrolling list area inside the sidebar; the profile bar goes right above its root. */
   sidebarContent: '[data-slot="sidebar-content"]',
+  /** Sidebar groups: the search row (search, filter, new project, new chat) and the list's own groups. */
+  sidebarGroup: '[data-slot="sidebar-group"]',
+  /** The "T3 Code" wordmark link in the sidebar's logo row (apps/web Sidebar header). */
+  homeLink: 'a[aria-label="T3 Code home"]',
   /** Every keyboard-navigable sidebar row. Value: thread key, folder:<key>, shelf:<name>, draft:<id>. */
   sidebarRow: "[data-sidebar-row]",
   /** <li> around a thread row. Value: thread key "<environmentId>:<threadId>". */
@@ -96,6 +100,8 @@ export const T3PLUS = Object.freeze({
   homeId: "t3plus-home",
   /** On <html> while the compact sidebar header is on. */
   compactAttr: "data-t3plus-compact-sidebar",
+  /** On T3's logo row (the sidebar header that holds the home link); hidden by the compact header. */
+  logoRowAttr: "data-t3plus-logo-row",
   /** On <html> while sidebar rows show the title first. */
   titleFirstAttr: "data-t3plus-title-first",
   /** On T3's usage limits section while the t3+ pool replaces its rows. */
