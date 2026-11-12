@@ -16,8 +16,9 @@ so t3+ reads three small JSON files instead, published from the machine that run
 
 Put them in one folder that your browser can reach over HTTPS. A
 [Tailscale](https://tailscale.com/kb/1312/serve) file share works well, because only your
-own devices can open it. Then tell the build where that folder is, either with an
-environment variable:
+own devices can open it. The release zip is built without a feed folder, so
+[build from source](../README.md#building-from-source) and tell the build where that
+folder is, either with an environment variable:
 
 ```sh
 T3PLUS_FEED_BASE=https://my-machine.my-tailnet.ts.net/files/ npm run build

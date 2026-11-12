@@ -37,29 +37,33 @@ T3 changes often, so an update can break part of it until it's fixed here.
 
 ![A thread in screenshot mode, with the Claude pool in the thread details panel](docs/images/thread.png)
 
-![The glass composer over the Bayer, Grain and Spectrum glow](docs/images/composer-looks.png)
-
 ## Install
 
-You need Node 20 or newer and Chrome (or another Chromium browser).
+1. Download `t3plus-v0.18.0.zip` from the
+   [latest release](https://github.com/alextyhwang/t3plus/releases/latest) and unzip it.
+2. Open `chrome://extensions` (or the same page in another Chromium browser) and turn on
+   Developer mode.
+3. Click Load unpacked and pick the unzipped folder.
+4. Reload https://app.t3.codes and click the t3+ toolbar icon to open its settings.
+
+The glow, composer, screenshot mode and bot faces work right away. The usage widgets, bot
+messages and profile tabs read small JSON files that you publish from the machine running
+T3, and they need a build that knows where those files are. [docs/setup.md](docs/setup.md)
+explains both.
+
+To update, unzip the new release over the old folder, click reload on the t3+ card in
+`chrome://extensions`, and reload the T3 tab. Your settings carry over.
+
+### Building from source
+
+You need Node 20 or newer.
 
 ```sh
 git clone https://github.com/alextyhwang/t3plus.git
 cd t3plus
 npm install
-npm run build
+npm run build        # writes dist/; load that folder instead
 ```
-
-Then open `chrome://extensions`, turn on Developer mode, click Load unpacked and pick the
-`dist/` folder. Reload https://app.t3.codes and click the t3+ toolbar icon to open its
-settings.
-
-The glow, composer, screenshot mode and bot faces work right away. The usage widgets, bot
-messages and profile tabs read small JSON files that you publish from the machine running
-T3. [docs/setup.md](docs/setup.md) explains how.
-
-To update: pull, run `npm run build`, click reload on the t3+ card in `chrome://extensions`,
-and reload the T3 tab.
 
 ## Privacy
 
