@@ -3,7 +3,8 @@
 Short history of t3+ releases. Details live in README.md; plans in ROADMAP.md.
 
 ## 0.18.0 (2026-11-12)
-- Ready to publish: a new README with screenshots (docs/images), and no personal setup in
+- Ready to publish: a short README with screenshots (docs/images), setup details in
+  docs/setup.md, and no personal setup in
   the repo.
 - The feed folder is set at build time (`T3PLUS_FEED_BASE` or an untracked
   `t3plus.local.json`). Built without one, t3+ fetches nothing.
