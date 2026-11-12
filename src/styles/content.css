@@ -1,0 +1,2172 @@
+/*
+ * t3+ content styles. Injected by the manifest (exempt from page CSP).
+ *
+ * Selectors mirror src/config.js:
+ *   [data-workspace-area="conversation"]          T3's conversation pane: hosts the backdrop layer
+ *   [data-t3plus-backdrop-host]                    fallback host: the composer overlay's parent,
+ *                                                  tagged by src/composer.js only when the hook above is missing
+ *   [data-slot="composer-shell"]                   T3's composer shell; its ::before is T3's glass
+ *   [data-chat-composer-surface="true"]            T3's composer card
+ *   [data-t3plus-surface]                          fallback card tag set by src/composer.js
+ * Values arrive as custom properties on <html>, set by src/gradient.js:
+ *   --t3plus-accent  #rrggbb, or unset to follow T3's --primary
+ *   --t3plus-core / --t3plus-halo / --t3plus-fade   accent share per stop (half-circle)
+ *   --t3plus-scrim-top / --t3plus-scrim-bottom     share of the page color over the image
+ *   --t3plus-image   url(...) of the chosen image
+ *   --t3plus-glass-opacity / --t3plus-glass-blur   composer glass
+ *
+ * Model (v2): the gradient or image is a BACKGROUND layer behind the
+ * conversation and composer. The composer card itself is translucent glass on
+ * top of it. Visual layers are pseudo-elements with pointer-events: none, so
+ * nothing intercepts clicks, moves the caret, or restyles the editor, chips,
+ * attachments, or buttons. Nothing animates.
+ */
+
+/* ---------- Backdrop layer ---------- */
+
+/* isolation keeps the z-index:-1 layer above the pane's own opaque background
+   and below its content (timeline and composer). */
+html[data-t3plus-backdrop] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host]) {
+  isolation: isolate;
+}
+
+html[data-t3plus-backdrop] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::before,
+.t3plus-preview:not([data-backdrop="off"]) .t3plus-preview-pane::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-repeat: no-repeat;
+}
+
+/* B. Bottom half-circle: a static elliptical glow anchored to the actual
+   composer center, behind the composer. The Bayer tile is a real ordered
+   dither, not a blurred/noise approximation. */
+html[data-t3plus-backdrop="half-circle"] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::before,
+.t3plus-preview[data-backdrop="half-circle"] .t3plus-preview-pane::before {
+  background-image:
+    var(--t3plus-dither),
+    radial-gradient(
+      ellipse 30% 26% at var(--t3plus-composer-x, 50%) 100%,
+      color-mix(in oklab, var(--t3plus-accent, var(--primary, #6d7cff)) var(--t3plus-core, 38%), transparent) 0%,
+      transparent 100%
+    ),
+    radial-gradient(
+      ellipse 62% 52% at var(--t3plus-composer-x, 50%) 100%,
+      color-mix(in oklab, var(--t3plus-accent, var(--primary, #6d7cff)) var(--t3plus-halo, 25%), transparent) 0%,
+      color-mix(in oklab, var(--t3plus-accent, var(--primary, #6d7cff)) var(--t3plus-fade, 10%), transparent) 55%,
+      transparent 100%
+    );
+  background-size: 8px 8px, 100% 100%, 100% 100%;
+  background-blend-mode: soft-light, normal, normal;
+}
+
+/* A. Image: the image covers the pane under a scrim of the page's own color.
+   The scrim is heavier at the top (where messages are read) than at the
+   bottom (around the composer). */
+html[data-t3plus-backdrop="image"] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::before,
+.t3plus-preview[data-backdrop="image"] .t3plus-preview-pane::before {
+  background-image:
+    var(--t3plus-dither),
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--background, #0a0a0a) var(--t3plus-scrim-top, 70%), transparent),
+      color-mix(in srgb, var(--background, #0a0a0a) var(--t3plus-scrim-bottom, 50%), transparent)
+    ),
+    var(--t3plus-image, none);
+  background-size: 8px 8px, 100% 100%, cover;
+  background-position: 0 0, 0 0, var(--t3plus-composer-x, 50%) center;
+  background-blend-mode: soft-light, normal, normal;
+}
+
+@media (prefers-contrast: more) {
+  html[data-t3plus-backdrop="image"] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::before,
+  .t3plus-preview[data-backdrop="image"] .t3plus-preview-pane::before {
+    background-image:
+      var(--t3plus-dither),
+      linear-gradient(
+        color-mix(in srgb, var(--background, #0a0a0a) 88%, transparent),
+        color-mix(in srgb, var(--background, #0a0a0a) 88%, transparent)
+      ),
+      var(--t3plus-image, none);
+    background-size: 8px 8px, 100% 100%, cover;
+    background-position: 0 0, 0 0, var(--t3plus-composer-x, 50%) center;
+    background-blend-mode: soft-light, normal, normal;
+  }
+}
+
+/* C. Real ordered dither (src/backdropRenderer.js): the same glow or image,
+   pre-rendered once into a small canvas with a 16x16 Bayer matrix and shown
+   as crisp pixels. Applies only when the rendered image matches the current
+   mode; until then the gradients above show. */
+html[data-t3plus-dithered="image"][data-t3plus-backdrop="image"] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::before,
+html[data-t3plus-dithered="image"] .t3plus-preview[data-backdrop="image"] .t3plus-preview-pane::before {
+  background-image: var(--t3plus-dither-image) !important;
+  background-size: var(--t3plus-dither-size) !important;
+  background-position: 0 0 !important;
+  background-repeat: no-repeat !important;
+  background-blend-mode: normal !important;
+  image-rendering: pixelated;
+}
+
+/* The pixel glow is a sprite centered on two animated lengths
+   (backdropRenderer.js): switching between the new-thread page and a thread,
+   or the composer moving, slides it instead of re-rendering. */
+@property --t3plus-glow-x {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+@property --t3plus-glow-y {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+html[data-t3plus-glow-ready] {
+  transition:
+    --t3plus-glow-x 150ms cubic-bezier(0.22, 1, 0.36, 1),
+    --t3plus-glow-y 150ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+html[data-t3plus-dithered="half-circle"][data-t3plus-backdrop="half-circle"] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::before,
+html[data-t3plus-dithered="half-circle"] .t3plus-preview[data-backdrop="half-circle"] .t3plus-preview-pane::before {
+  background-image: var(--t3plus-dither-image) !important;
+  background-size: var(--t3plus-dither-w) var(--t3plus-dither-h) !important;
+  background-position: calc(var(--t3plus-glow-x) - var(--t3plus-dither-w) / 2) calc(var(--t3plus-glow-y) - var(--t3plus-dither-h) / 2) !important;
+  background-repeat: no-repeat !important;
+  background-blend-mode: normal !important;
+  image-rendering: pixelated;
+}
+
+/* New-thread page: a wider glow. The pane holds both sprites, the normal one
+   on ::before and the wide one on ::after, and crossfades between them while
+   each scales around the glow center toward the other's size. Only opacity
+   and transform change, both run on the compositor, and at rest each layer
+   is at scale 1, so its pixels are crisp. */
+html[data-t3plus-dithered="half-circle"][data-t3plus-backdrop="half-circle"] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: var(--t3plus-wide-image);
+  background-size: var(--t3plus-wide-w) var(--t3plus-wide-h);
+  background-position: calc(var(--t3plus-glow-x) - var(--t3plus-wide-w) / 2) calc(var(--t3plus-glow-y) - var(--t3plus-wide-h) / 2);
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+  opacity: 0;
+  /* 1 / HERO_SPREAD (backdropRenderer.js): the size of the normal glow. */
+  transform: scale(0.87);
+}
+html[data-t3plus-dithered="half-circle"][data-t3plus-backdrop="half-circle"] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::before {
+  transform-origin: var(--t3plus-glow-x) var(--t3plus-glow-y);
+}
+html[data-t3plus-dithered="half-circle"][data-t3plus-backdrop="half-circle"] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::after {
+  transform-origin: var(--t3plus-glow-x) var(--t3plus-glow-y);
+}
+html[data-t3plus-glow-ready][data-t3plus-dithered="half-circle"] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::before,
+html[data-t3plus-glow-ready][data-t3plus-dithered="half-circle"] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::after {
+  transition:
+    opacity 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+html[data-t3plus-glow-wide][data-t3plus-dithered="half-circle"][data-t3plus-backdrop="half-circle"] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::before {
+  opacity: 0;
+  /* HERO_SPREAD: the size of the wide glow. */
+  transform: scale(1.15);
+}
+html[data-t3plus-glow-wide][data-t3plus-dithered="half-circle"][data-t3plus-backdrop="half-circle"] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::after {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-t3plus-glow-ready],
+  html[data-t3plus-glow-ready] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::before,
+  html[data-t3plus-glow-ready] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::after {
+    transition: none !important;
+  }
+}
+
+/* ---------- Glass composer ---------- */
+
+/* Current T3: the shell's ::before is already a glass layer driven by these
+   variables. t3+ tunes them instead of painting a second surface. */
+html[data-t3plus-glass] [data-slot="composer-shell"] {
+  --glass-opacity: var(--t3plus-glass-opacity, 52%);
+  --glass-blur: var(--t3plus-glass-blur, 18px);
+  --glass-saturation: 1.35;
+  --chat-composer-outline: color-mix(in srgb, var(--foreground, #fff) 14%, transparent);
+}
+
+/* Fallback: a composer card outside T3's shell gets its own glass surface. */
+html[data-t3plus-glass] :is([data-chat-composer-surface="true"], [data-t3plus-surface]):not([data-slot="composer-shell"] *),
+.t3plus-preview[data-glass="true"] .t3plus-preview-card {
+  background-color: color-mix(in srgb, var(--card, #121212) var(--t3plus-glass-opacity, 52%), transparent);
+  -webkit-backdrop-filter: blur(var(--t3plus-glass-blur, 18px)) saturate(1.35);
+  backdrop-filter: blur(var(--t3plus-glass-blur, 18px)) saturate(1.35);
+  border-color: color-mix(in srgb, var(--foreground, #fff) 14%, transparent);
+}
+
+/* Without backdrop-filter, or when the user asks for less transparency, the
+   card stays nearly opaque so text over a busy image remains readable. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  html[data-t3plus-glass] [data-slot="composer-shell"],
+  html[data-t3plus-glass] :is([data-chat-composer-surface="true"], [data-t3plus-surface]),
+  .t3plus-preview .t3plus-preview-card {
+    --t3plus-glass-opacity: 94%;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  html[data-t3plus-glass] [data-slot="composer-shell"],
+  html[data-t3plus-glass] :is([data-chat-composer-surface="true"], [data-t3plus-surface]),
+  .t3plus-preview .t3plus-preview-card {
+    --t3plus-glass-opacity: 96%;
+  }
+}
+
+@media (forced-colors: active) {
+  html[data-t3plus-backdrop] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::before,
+  .t3plus-preview .t3plus-preview-pane::before {
+    display: none !important;
+  }
+  html[data-t3plus-glass] :is([data-chat-composer-surface="true"], [data-t3plus-surface]),
+  .t3plus-preview .t3plus-preview-card {
+    background-color: Canvas !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    border-color: CanvasText !important;
+  }
+}
+
+/* ---------- Sidebar: profile filtering ---------- */
+
+/* Rows t3+ hides for the active profile also carry `hidden`, which T3's own
+   keyboard tree skips; this rule beats any display utility on the <li>. */
+[data-t3plus-filtered][hidden] {
+  display: none !important;
+}
+
+/* The open thread when it is outside the active profile (deep link). */
+[data-t3plus-outside] {
+  outline: 1px dashed color-mix(in srgb, var(--sidebar-muted-foreground, #888) 55%, transparent);
+  outline-offset: -1px;
+}
+
+/* ---------- Sidebar: profile bar ---------- */
+
+/* One compact row under T3's search group, same horizontal inset; about
+   1.625rem tall. It is the only element t3+ adds to the sidebar. */
+.t3plus-profilebar {
+  display: flex;
+  flex-direction: column;
+  padding: 0 var(--sidebar-content-inset, 0.5rem) 0.25rem;
+  font: inherit;
+  color: var(--sidebar-foreground, var(--foreground));
+}
+
+[data-collapsible="icon"] .t3plus-profilebar {
+  display: none;
+}
+
+.t3plus-profilebar *,
+.t3plus-profilebar *::before,
+.t3plus-profilebar *::after {
+  box-sizing: border-box;
+}
+
+.t3plus-profilebar-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.t3plus-profile-tabs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 0.125rem;
+  padding: 0.125rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-radius: var(--control-radius, 0.5rem);
+  background: color-mix(in srgb, var(--sidebar-foreground, #fff) 4%, transparent);
+}
+
+.t3plus-profile-status[hidden] {
+  display: none;
+}
+
+.t3plus-profile-tab {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.375rem;
+  height: 1.375rem;
+  max-width: 9rem;
+  padding: 0 0.5rem;
+  border: 0;
+  border-radius: calc(var(--control-radius, 0.5rem) - 0.125rem);
+  background: transparent;
+  color: var(--sidebar-muted-foreground, var(--muted-foreground));
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.t3plus-profile-tab:hover {
+  color: var(--sidebar-foreground, var(--foreground));
+  background: var(--sidebar-row-hover, var(--accent));
+}
+
+.t3plus-profile-tab[aria-pressed="true"] {
+  color: var(--sidebar-foreground, var(--foreground));
+  background: var(--sidebar-row-active, var(--accent));
+}
+
+.t3plus-profile-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.t3plus-profile-dot {
+  flex: none;
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 999px;
+  background: var(--t3plus-profile-color, var(--primary));
+  /* The dot is a tiny status/icon surface too. Use the same ordered tile as
+     the backdrop, scaled from the shared pixel length. */
+  background-image: var(--t3plus-dither, none);
+  background-size: calc(var(--t3plus-dither-cell, 2px) * 8) calc(var(--t3plus-dither-cell, 2px) * 8);
+  image-rendering: pixelated;
+}
+
+.t3plus-profile-status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1.375rem;
+  height: 1.375rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--control-radius, 0.5rem);
+  background: transparent;
+  color: var(--sidebar-muted-foreground, var(--muted-foreground));
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.t3plus-profile-status[data-state="ok"]::before {
+  content: "";
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sidebar-muted-foreground, #888) 60%, transparent);
+}
+
+.t3plus-profile-status[data-state="warn"] {
+  color: var(--warning-foreground, #f59e0b);
+}
+
+.t3plus-profile-status:hover {
+  background: var(--sidebar-row-hover, var(--accent));
+}
+
+.t3plus-profilebar[data-empty="true"]::after {
+  content: "No threads in this profile yet.";
+  padding: 0.375rem 0.5rem 0;
+  font-size: 0.75rem;
+  color: var(--sidebar-muted-foreground, var(--muted-foreground));
+}
+
+.t3plus-profilebar button:focus-visible {
+  outline: 2px solid var(--ring, var(--primary));
+  outline-offset: -2px;
+}
+
+/* ---------- Sidebar: bot rows ---------- */
+
+/* A bot row reads like a chat-list entry (Grok-style):
+     [avatar]  Bot name ................ time/status
+               Latest message, clamped to the lines
+               T3's row already has
+   T3 still owns the row and its height: t3+ only hides the project/pin,
+   branch and provider icons, swaps the title text for the latest message,
+   and adds one avatar element. */
+[data-t3plus-bot] {
+  position: relative;
+}
+
+/* Two lines on every bot row: T3's fixed card height is released so a bot
+   with a branch line is exactly as tall as one without. */
+[data-t3plus-bot-body] {
+  height: auto !important;
+  padding-left: 3.125rem !important;
+}
+
+[data-t3plus-bot-hide] {
+  display: none !important;
+}
+
+/* Line 1: the bot's name in place of the project, T3's status/time slot stays. */
+[data-t3plus-bot-top]::before {
+  content: attr(data-t3plus-bot-name);
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground);
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+}
+
+/* The name follows T3's own title styling (SidebarThreadRow.tsx): T3 still
+   renders the real title span with its state classes (hidden text, see
+   below), so the name copies them. A thread that has been seen recedes to
+   75% (font-normal) until it is hovered, focused or open; the slim variant
+   uses secondary-label shades; failed threads are 95%. */
+[data-t3plus-bot]:has([data-t3plus-bot-title].font-normal) [data-t3plus-bot-top]::before {
+  font-weight: 400;
+}
+[data-t3plus-bot]:has([data-t3plus-bot-title].text-foreground\/75) [data-t3plus-bot-top]::before {
+  color: color-mix(in srgb, var(--foreground) 75%, transparent);
+}
+[data-t3plus-bot]:has([data-t3plus-bot-title].text-foreground\/95) [data-t3plus-bot-top]::before {
+  color: color-mix(in srgb, var(--foreground) 95%, transparent);
+}
+[data-t3plus-bot]:has([data-t3plus-bot-title].text-muted-foreground) [data-t3plus-bot-top]::before {
+  color: var(--muted-foreground);
+}
+[data-t3plus-bot]:has([data-t3plus-bot-title].text-secondary-label) [data-t3plus-bot-top]::before {
+  color: var(--secondary-label, var(--muted-foreground));
+}
+[data-t3plus-bot]:has([data-t3plus-bot-title].text-secondary-label\/70) [data-t3plus-bot-top]::before {
+  color: color-mix(in srgb, var(--secondary-label, var(--muted-foreground)) 70%, transparent);
+}
+/* Settled rows dim every child until hovered (rowSurfaceClassName "unsettle"). */
+[data-t3plus-bot][class*=":text-secondary-label"]:not(:hover):not(:focus-within) [data-t3plus-bot-top]::before {
+  color: var(--secondary-label, var(--muted-foreground));
+}
+/* Hover, keyboard focus and the open thread bring it to full strength, as in T3. */
+[data-t3plus-bot]:is(:hover, :focus-visible, :focus-within, [aria-current="page"]) [data-t3plus-bot-top]::before {
+  color: var(--foreground);
+}
+
+/* Line 2: the latest message, one line, truncated. */
+[data-t3plus-bot-title] {
+  /* The span still holds T3's raw title (with the marker): hide its text and
+     show the preview from the attribute. T3's sr-only title is untouched. */
+  display: block !important;
+  min-width: 0;
+  flex: 1 1 auto !important;
+  overflow: hidden;
+  font-size: 0 !important;
+}
+
+[data-t3plus-bot-title]::after {
+  content: attr(data-t3plus-bot-title);
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* T3's secondary text (branch, time) uses text-secondary-label. */
+  color: var(--secondary-label, var(--sidebar-muted-foreground, var(--muted-foreground)));
+  font-size: 0.8125rem;
+  font-weight: 400;
+  line-height: 1.25rem;
+}
+
+/* The avatar: a square tile clipped to the bot's shape, filled with the
+   color's ordered-dither gradient; the status dot sits outside the clip. */
+.t3plus-bot-avatar {
+  position: absolute;
+  z-index: 20;
+  left: 0.625rem;
+  top: 50%;
+  width: 2rem;
+  height: 2rem;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.t3plus-bot-avatar::before,
+.t3plus-swatch-mark,
+.t3plus-bot-swatch,
+[data-t3plus-bot-breadcrumb]::before,
+[data-t3plus-bot-hover]::before {
+  background-color: var(--t3plus-bot-edge, var(--primary, #6d7cff));
+  background-image: var(--t3plus-bot-fill, none);
+  /* Sprite sheets: one 24x24 frame per step, laid out horizontally. */
+  background-size: calc(var(--t3plus-bot-frames, 1) * 100%) 100%;
+  background-position: 0 0;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+  clip-path: var(--t3plus-bot-clip, circle(50% at 50% 50%));
+}
+
+/* Working / needs-you faces animate by stepping through their frames: no
+   tweening, so it stays crisp pixel art and costs one tiny repaint per step. */
+.t3plus-bot-avatar[data-animated]::before,
+[data-t3plus-bot-breadcrumb][data-animated]::before,
+[data-t3plus-bot-hover][data-animated]::before {
+  animation: t3plus-bot-sprite var(--t3plus-bot-duration, 1.6s) steps(var(--t3plus-bot-frames, 1), jump-none) infinite;
+}
+
+@keyframes t3plus-bot-sprite {
+  from {
+    background-position: 0% 0;
+  }
+  to {
+    background-position: 100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t3plus-bot-avatar[data-animated]::before,
+  [data-t3plus-bot-breadcrumb][data-animated]::before,
+  [data-t3plus-bot-hover][data-animated]::before {
+    animation: none;
+  }
+}
+
+.t3plus-bot-avatar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+/* One status signal per job: the face shows the state (animated while working,
+   wide eyes when it needs you, half-closed while waiting, happy when done, X on
+   failure, eyes closed when idle) and T3's own colored label and time ("Working
+   4m", "Approval", "Done 1h") stay in the status slot. T3's status icon (the
+   spinner etc.) is hidden on bot rows, since the face already plays that part.
+   Hover buttons in the slot (Settle, Snooze) keep their icons. */
+[data-t3plus-bot-status] svg:not(button svg) {
+  display: none !important;
+}
+
+/* The breadcrumb keeps its repository crumb but replaces the raw marker with
+   the same bot avatar and clean display label. */
+[data-t3plus-bot-breadcrumb] {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0 !important;
+}
+
+[data-t3plus-bot-breadcrumb]::before {
+  content: "";
+  display: inline-block;
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+/* T3's thread hover card: the same face and clean name instead of the raw
+   "[[t3plus:bot:v1]] ..." title (T3's text-xs font-medium title line). */
+[data-t3plus-bot-hover] {
+  display: flex !important;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0 !important;
+}
+
+[data-t3plus-bot-hover]::before {
+  content: "";
+  display: inline-block;
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+}
+
+[data-t3plus-bot-hover]::after {
+  content: attr(data-t3plus-bot-hover-label);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+}
+
+[data-t3plus-bot-breadcrumb]::after {
+  content: attr(data-t3plus-bot-breadcrumb-label);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.875rem;
+}
+
+@media (forced-colors: active) {
+  .t3plus-bot-avatar::before,
+  [data-t3plus-bot-breadcrumb]::before {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
+  .t3plus-profile-tab[aria-pressed="true"] {
+    outline: 2px solid Highlight;
+  }
+  [data-t3plus-outside] {
+    outline-color: CanvasText;
+  }
+}
+
+/* ---------- Settings -> Appearance section ---------- */
+/* Mirrors T3's SettingsSection/SettingsRow look using T3's theme variables. */
+
+.t3plus-section {
+  display: block;
+  color: var(--foreground);
+  font: inherit;
+}
+
+.t3plus-section *,
+.t3plus-section *::before,
+.t3plus-section *::after {
+  box-sizing: border-box;
+}
+
+.t3plus-section-header {
+  display: flex;
+  min-height: 1.75rem;
+  align-items: center;
+  padding: 0 1rem;
+  margin-bottom: 0.625rem;
+}
+
+.t3plus-section-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+  color: color-mix(in srgb, var(--foreground) 70%, transparent);
+}
+
+.t3plus-badge {
+  border-radius: 999px;
+  padding: 0.0625rem 0.4375rem;
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+  background: var(--muted);
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.t3plus-card {
+  position: relative;
+  border-radius: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  background: color-mix(in srgb, var(--card) 40%, transparent);
+}
+
+.t3plus-row {
+  padding: 0.75rem 1rem;
+}
+
+.t3plus-row[hidden] {
+  display: none;
+}
+
+.t3plus-row + .t3plus-row {
+  border-top: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+}
+
+.t3plus-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .t3plus-row-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(10rem, auto);
+    align-items: center;
+    gap: 2rem;
+  }
+}
+
+.t3plus-row-text {
+  min-width: 0;
+}
+
+.t3plus-row-title {
+  margin: 0;
+  min-height: 1.25rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--foreground);
+}
+
+.t3plus-row-desc {
+  margin: 0.25rem 0 0;
+  max-width: 36rem;
+  font-size: 13px;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--muted-foreground) 80%, transparent);
+}
+
+.t3plus-row-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.t3plus-status {
+  margin: 0.5rem 0 0;
+  min-height: 1rem;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.t3plus-status:empty {
+  display: none;
+}
+
+.t3plus-sr-only {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Focus ring shared by all controls. */
+.t3plus-section :is(button, input):focus-visible,
+.t3plus-segment:has(input:focus-visible) {
+  outline: 2px solid var(--ring, var(--primary));
+  outline-offset: 2px;
+}
+
+/* Switch */
+.t3plus-switch {
+  position: relative;
+  flex: none;
+  width: 2.25rem;
+  height: 1.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--input);
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.t3plus-switch[aria-checked="true"] {
+  background: var(--primary);
+}
+
+.t3plus-switch-thumb {
+  position: absolute;
+  top: 0.125rem;
+  left: 0.125rem;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+  transition: transform 150ms ease;
+}
+
+.t3plus-switch[aria-checked="true"] .t3plus-switch-thumb {
+  transform: translateX(1rem);
+}
+
+/* Segmented control */
+.t3plus-segmented {
+  display: inline-flex;
+  padding: 0.125rem;
+  gap: 0.125rem;
+  border-radius: 0.5rem;
+  background: var(--muted);
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.t3plus-segment {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.625rem;
+  border-radius: 0.375rem;
+  font-size: 13px;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  user-select: none;
+}
+
+.t3plus-segment:has(input:checked) {
+  color: var(--foreground);
+  background: var(--background);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
+}
+
+/* Buttons */
+.t3plus-button {
+  display: inline-flex;
+  align-items: center;
+  height: 1.75rem;
+  padding: 0 0.625rem;
+  border-radius: 0.375rem;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.t3plus-button:hover:not(:disabled) {
+  background: var(--accent);
+}
+
+.t3plus-button[aria-pressed="true"] {
+  background: var(--accent);
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+}
+
+.t3plus-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.t3plus-button-ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted-foreground);
+}
+
+/* Image thumbnail */
+.t3plus-thumb {
+  width: 2.75rem;
+  height: 1.75rem;
+  border-radius: 0.375rem;
+  border: 1px solid var(--border);
+  background-color: var(--muted);
+  background-size: cover;
+  background-position: center;
+}
+
+/* Color */
+.t3plus-color {
+  width: 2rem;
+  height: 1.75rem;
+  padding: 0.125rem;
+  border-radius: 0.375rem;
+  border: 1px solid var(--border);
+  background: var(--background);
+  cursor: pointer;
+}
+
+/* Intensity */
+.t3plus-output {
+  min-width: 3rem;
+  border-radius: 0.375rem;
+  padding: 0.25rem 0.5rem;
+  background: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--foreground);
+}
+
+.t3plus-slider {
+  width: 9rem;
+  height: 1.25rem;
+  margin: 0;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+
+.t3plus-slider::-webkit-slider-runnable-track {
+  height: 0.25rem;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--primary) var(--t3plus-slider-progress, 50%),
+    var(--input) var(--t3plus-slider-progress, 50%)
+  );
+}
+
+.t3plus-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  margin-top: -0.3125rem;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+}
+
+/* Preview: a page area with the background layer and a glass composer card. */
+.t3plus-preview {
+  display: grid;
+  grid-template-columns: minmax(10rem, 32%) 1fr;
+  height: 18rem;
+  margin-top: 0.75rem;
+  overflow: hidden;
+  border-radius: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  background-color: var(--background);
+  color: var(--foreground);
+  font-size: 13px;
+  pointer-events: none;
+  user-select: none;
+}
+
+.t3plus-preview[data-backdrop="off"] .t3plus-preview-pane {
+  opacity: 0.85;
+}
+
+/* Mini sidebar, in T3's sidebar tokens. */
+.t3plus-preview-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+  padding: 0.5rem 0.375rem;
+  border-right: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  background: var(--sidebar, var(--background));
+  color: var(--sidebar-foreground, var(--foreground));
+}
+
+.t3plus-preview-search {
+  margin: 0 0.125rem 0.375rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.375rem;
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.t3plus-preview-bots {
+  display: contents;
+}
+
+.t3plus-preview-bot,
+.t3plus-preview-row {
+  min-width: 0;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.375rem;
+}
+
+.t3plus-preview-bot {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.t3plus-preview-bot.is-active {
+  background: var(--sidebar-row-active, color-mix(in srgb, var(--foreground) 8%, transparent));
+}
+
+.t3plus-preview-avatar {
+  position: relative;
+  top: auto;
+  left: auto;
+  flex: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  transform: none;
+}
+
+.t3plus-preview-bot-text {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.t3plus-preview-bot-top,
+.t3plus-preview-row-top {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+/* Name and title colors as T3 draws them: full strength when open, receded to 75% once seen. */
+.t3plus-preview-bot-name,
+.t3plus-preview-row-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--foreground) 75%, transparent);
+  font-size: 12.5px;
+  font-weight: 400;
+}
+
+.t3plus-preview-bot.is-active .t3plus-preview-bot-name {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.t3plus-preview-bot-message,
+.t3plus-preview-project,
+.t3plus-preview-time {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--secondary-label, var(--muted-foreground));
+  font-size: 11px;
+}
+
+.t3plus-preview-time {
+  flex: none;
+  margin-left: auto;
+}
+
+.t3plus-preview-project {
+  min-width: 0;
+  flex: 1;
+}
+
+.t3plus-preview-fav {
+  display: inline-flex;
+  width: 0.875rem;
+  height: 0.875rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.2rem;
+  background: var(--fav, #555);
+  color: #fff;
+  font-size: 6px;
+  font-weight: 700;
+}
+
+.t3plus-preview-row-title {
+  display: block;
+  margin-top: 0.125rem;
+}
+
+/* Conversation pane: hosts the real dithered background on this page. */
+.t3plus-preview-pane {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.t3plus-preview-header {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.625rem 0.875rem;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.t3plus-preview-crumb,
+.t3plus-preview-sep {
+  color: var(--muted-foreground);
+}
+
+.t3plus-preview-thread {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.25rem 1.25rem;
+}
+
+.t3plus-preview-user {
+  max-width: 75%;
+  align-self: flex-end;
+  padding: 0.375rem 0.625rem;
+  border-radius: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: var(--card, #111);
+  font-size: 12px;
+}
+
+.t3plus-preview-assistant {
+  margin: 0;
+  max-width: 92%;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.t3plus-preview-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 4.25rem;
+  margin: 0 1.25rem 0.875rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 1rem;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background-color: var(--card);
+}
+
+.t3plus-preview-placeholder {
+  font-size: 12.5px;
+  color: var(--muted-foreground);
+}
+
+.t3plus-preview-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.t3plus-preview-chip {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foreground) 10%, transparent);
+}
+
+.t3plus-preview-model {
+  margin-left: auto;
+  color: var(--muted-foreground);
+  font-size: 11.5px;
+}
+
+.t3plus-preview-send {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  background: var(--primary, #3b82f6);
+}
+
+/* Sidebar settings */
+.t3plus-subsection-title {
+  margin: 1.25rem 0 0.625rem;
+  padding: 0 1rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--foreground) 70%, transparent);
+}
+
+.t3plus-section .t3plus-card + .t3plus-card {
+  margin-top: 0.75rem;
+}
+
+.t3plus-source-summary {
+  overflow-wrap: anywhere;
+}
+
+.t3plus-diagnostic {
+  margin: 0.5rem 0 0;
+  padding: 0.375rem 0.625rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--warning, #f59e0b) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning, #f59e0b) 35%, transparent);
+  overflow-wrap: anywhere;
+}
+
+.t3plus-diagnostic[hidden],
+.t3plus-diagnostic-list[hidden],
+.t3plus-local-config[hidden],
+.t3plus-bots-empty[hidden] {
+  display: none;
+}
+
+.t3plus-diagnostic-list {
+  margin: 0.375rem 0 0;
+  padding-left: 1.25rem;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.t3plus-local-config {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.t3plus-textarea,
+.t3plus-input,
+.t3plus-select {
+  width: 100%;
+  min-width: 0;
+  border-radius: 0.375rem;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 13px;
+}
+
+.t3plus-textarea {
+  padding: 0.5rem 0.625rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.t3plus-input,
+.t3plus-select {
+  height: 1.75rem;
+  padding: 0 0.5rem;
+}
+
+.t3plus-row-control-start {
+  justify-content: flex-start;
+}
+
+.t3plus-bots {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.t3plus-bot-editor {
+  padding: 0.75rem;
+  border-radius: 0.625rem;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  background: color-mix(in srgb, var(--background) 50%, transparent);
+}
+
+/* Settings only: the bot's avatar and the shape/color pickers. */
+.t3plus-bot-swatch {
+  flex: none;
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.t3plus-bot-preview {
+  margin: 0.5rem 0 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+.t3plus-bot-preview[hidden] {
+  display: none;
+}
+
+.t3plus-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.t3plus-swatch {
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  cursor: pointer;
+}
+
+.t3plus-swatch:hover {
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+}
+
+.t3plus-swatch[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--foreground) 10%, transparent);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--foreground) 55%, transparent);
+}
+
+.t3plus-swatch:focus-visible {
+  outline: 2px solid var(--ring, var(--primary));
+  outline-offset: 1px;
+}
+
+.t3plus-swatch-mark {
+  display: block;
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.t3plus-bot-editor-head {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.t3plus-bot-editor-names {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.t3plus-bot-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.t3plus-bot-key {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+
+.t3plus-bot-editor-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.5rem 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.t3plus-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+.t3plus-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.t3plus-section :is(textarea, select):focus-visible {
+  outline: 2px solid var(--ring, var(--primary));
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t3plus-switch,
+  .t3plus-switch-thumb {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .t3plus-switch {
+    border: 1px solid ButtonText;
+    background: ButtonFace;
+  }
+  .t3plus-switch[aria-checked="true"] .t3plus-switch-thumb {
+    background: Highlight;
+  }
+  .t3plus-switch-thumb {
+    background: ButtonText;
+  }
+  .t3plus-segment:has(input:checked) {
+    outline: 2px solid Highlight;
+  }
+}
+
+/* ---------- New-thread page (T3's draft hero) ---------- */
+
+/* On the new-thread page T3 fills the conversation pane with a full-size
+   child that has its own opaque bg-background (in a thread that child is
+   transparent), which covered the glow layer. Let the pane's own background
+   (and the t3+ layer above it) show through. */
+html[data-t3plus-backdrop] [data-workspace-area="conversation"] > .bg-background {
+  background-color: transparent !important;
+}
+
+/* With the home widgets on, the hero is laid out top-down: app.js measures the
+   headline, composer and widgets and sets --t3plus-hero-top so the whole block
+   sits centered (slightly low) in the pane. T3's headline still hangs above
+   the composer stack. */
+html[data-t3plus-home] [data-chat-composer-overlay="true"].items-center {
+  align-items: flex-start !important;
+  padding-top: var(--t3plus-hero-top, clamp(7rem, 18vh, 11rem));
+}
+
+/* ---------- Home widgets ---------- */
+
+/* A 2x2 grid exactly as wide as T3's composer, hanging below the composer
+   stack (absolute, like T3's own headline hangs above it), so T3's hero
+   layout measurements are unchanged. Scrolls if the pane is very short. */
+.t3plus-home {
+  position: absolute;
+  top: calc(100% + 1rem);
+  left: 50%;
+  width: var(--t3plus-home-width, 46rem);
+  max-height: var(--t3plus-home-max-height, 24rem);
+  transform: translateX(-50%);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 0.5rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--foreground) 18%, transparent) transparent;
+  color: var(--foreground);
+  font-size: 0.75rem;
+  pointer-events: auto;
+}
+
+@media (max-width: 760px) {
+  .t3plus-home {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Cards: T3's rounded-lg border-border/60 panels, as glass over the dither. */
+.t3plus-w {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-radius: 0.625rem;
+  background-color: color-mix(in srgb, var(--card, #111) 74%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  backdrop-filter: blur(14px) saturate(1.3);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .t3plus-w {
+    background-color: var(--card, #111);
+  }
+}
+
+.t3plus-w-head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--muted-foreground);
+}
+
+.t3plus-w-head h3 {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1rem;
+  white-space: nowrap;
+}
+
+.t3plus-w-aside {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.t3plus-w-icon {
+  width: 0.8125rem;
+  height: 0.8125rem;
+  flex: none;
+  shape-rendering: crispEdges;
+  stroke-linecap: square;
+}
+
+.t3plus-w-muted,
+.t3plus-w-empty {
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.t3plus-w-warn {
+  color: var(--warning, #f59e0b);
+  font-variant-numeric: tabular-nums;
+}
+
+.t3plus-w-empty {
+  margin: 0;
+}
+
+/* ---- Pool (weekly pool chart, compact) ---- */
+
+.t3plus-w-pool-head {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 0.375rem;
+}
+
+.t3plus-w-big-num {
+  font-size: 1.375rem;
+  font-weight: 600;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.t3plus-w-next {
+  margin-left: auto;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.t3plus-w-plot {
+  position: relative;
+  min-width: 0;
+  flex: 1;
+  isolation: isolate;
+}
+
+/* Dither-kit area fill (ditherChart.js): square cells on the backdrop's pixel
+   grid, an ordered gradient from sparse under the line to solid at the
+   baseline. It sits under the SVG, which keeps the gridlines, the "now" rule
+   and the hover geometry. */
+.t3plus-w-dither {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0; /* before the SVG in the DOM, so it paints underneath */
+  width: 100%;
+  height: 4.5rem;
+  pointer-events: none;
+  image-rendering: pixelated;
+}
+
+.t3plus-w-plot-svg {
+  display: block;
+  width: 100%;
+  height: 4.5rem;
+  overflow: visible;
+  position: relative;
+  z-index: 0;
+  shape-rendering: crispEdges;
+}
+
+/* T3's Usage page chart (usageDither.js): the same fill on a canvas placed
+   first in T3's plot. The SVG becomes positioned so it stays on top of it,
+   keeping T3's gridlines and hover rule; its area and line paths hide. */
+.t3plus-usage-dither {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  image-rendering: pixelated;
+}
+
+[data-t3plus-usage-plot] > svg {
+  position: relative;
+}
+
+[data-t3plus-usage-plot][data-t3plus-dithered] > svg path {
+  visibility: hidden;
+}
+
+/* Once the canvas has painted, it is the visible area and line. */
+.t3plus-w-plot[data-t3plus-dithered] .t3plus-w-plot-svg :is(.t3plus-w-area, .t3plus-w-line, path[fill]:not(.t3plus-w-grid), path[stroke]:not(.t3plus-w-grid)) {
+  visibility: hidden;
+}
+
+.t3plus-w-grid {
+  fill: none;
+  stroke: var(--border, #333);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.t3plus-w-band {
+  fill: color-mix(in srgb, var(--destructive, #ef4444) 22%, transparent);
+}
+
+.t3plus-w-line {
+  fill: none;
+  stroke: var(--pool-color, var(--primary));
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: butt;
+}
+
+.t3plus-w-line-projected {
+  stroke-dasharray: 2 3;
+}
+
+.t3plus-w-area {
+  fill: var(--pool-color, var(--primary));
+  fill-opacity: 0.16;
+}
+
+.t3plus-w-area-projected {
+  fill-opacity: 0.07;
+}
+
+/* Dither-kit chart variants. The graph keeps a smooth mathematical path for
+   hover and screen readers, while the visible mark is made from crisp short
+   dashes and a shared Bayer wash. */
+.t3plus-w-plot-svg[data-t3plus-dither-chart="area"] .t3plus-w-area {
+  fill-opacity: 0.2;
+}
+
+.t3plus-w-plot-svg[data-t3plus-dither-chart="area"] .t3plus-w-line,
+.t3plus-w-plot-svg[data-t3plus-dither-chart="line"] path[stroke] {
+  stroke-dasharray: 2 1;
+}
+
+.t3plus-w-plot-svg[data-t3plus-dither-chart="line"] path[fill]:not(.t3plus-w-grid) {
+  fill-opacity: 0.14;
+}
+
+.t3plus-w-now {
+  stroke: var(--muted-foreground);
+  stroke-width: 1;
+  opacity: 0.6;
+}
+
+.t3plus-w-now-label,
+.t3plus-w-refill {
+  position: absolute;
+  top: -0.125rem;
+  transform: translateX(-50%);
+  color: var(--muted-foreground);
+  font-size: 0.625rem;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.t3plus-w-now-label {
+  top: auto;
+  bottom: calc(100% + 0.125rem);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.t3plus-w-refill {
+  top: 0.25rem;
+  padding: 0 0.1875rem;
+  border-radius: 0.1875rem;
+  background: color-mix(in srgb, var(--card, #111) 80%, transparent);
+  color: color-mix(in srgb, var(--foreground) 80%, transparent);
+}
+
+/* T3's chart axes: text-3xs, muted, uppercase, tabular. */
+.t3plus-w-axis {
+  position: relative;
+  height: 0.75rem;
+  color: var(--muted-foreground);
+  font-size: 0.625rem;
+  line-height: 0.75rem;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+
+.t3plus-w-axis > span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.t3plus-w-axis-spread {
+  display: flex;
+  justify-content: space-between;
+  margin-left: 2.25rem;
+}
+
+.t3plus-w-axis-spread > span {
+  position: static;
+  transform: none;
+}
+
+/* ---- Usage (T3's UsageProviderChart, compact) ---- */
+
+.t3plus-w-usage-plot {
+  display: flex;
+  min-width: 0;
+  gap: 0.375rem;
+}
+
+.t3plus-w-yaxis {
+  display: flex;
+  width: 1.875rem;
+  flex: none;
+  flex-direction: column;
+  justify-content: space-between;
+  color: var(--muted-foreground);
+  font-size: 0.625rem;
+  line-height: 0.75rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.t3plus-w-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.125rem 0.625rem;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.t3plus-w-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+}
+
+.t3plus-w-legend-dot {
+  width: 0.4375rem;
+  height: 0.4375rem;
+  border-radius: 2px;
+}
+
+/* ---- Activity: fills its card (weekday column, month row, square days) ---- */
+
+.t3plus-w-heat {
+  display: grid;
+  grid-template-columns: 1.375rem repeat(var(--weeks, 20), minmax(0, 1fr));
+  grid-template-rows: 0.75rem;
+  grid-auto-rows: auto;
+  column-gap: 3px;
+  row-gap: 3px;
+  min-width: 0;
+}
+
+.t3plus-w-heat-day,
+.t3plus-w-heat-month {
+  color: var(--muted-foreground);
+  font-size: 0.5625rem;
+  line-height: 0.75rem;
+  white-space: nowrap;
+  overflow: visible;
+}
+
+.t3plus-w-heat-day {
+  align-self: center;
+  line-height: 1;
+}
+
+.t3plus-w-heat-month {
+  grid-column-end: span 3;
+}
+
+.t3plus-w-cell {
+  display: block;
+  aspect-ratio: 1;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--foreground) 7%, transparent);
+  background-image: var(--t3plus-dither, none);
+  background-size: calc(var(--t3plus-dither-cell, 2px) * 8) calc(var(--t3plus-dither-cell, 2px) * 8);
+  image-rendering: pixelated;
+}
+
+.t3plus-w-cell[data-level="1"] {
+  background-color: color-mix(in oklab, var(--primary, #3b82f6) 30%, transparent);
+}
+.t3plus-w-cell[data-level="2"] {
+  background-color: color-mix(in oklab, var(--primary, #3b82f6) 52%, transparent);
+}
+.t3plus-w-cell[data-level="3"] {
+  background-color: color-mix(in oklab, var(--primary, #3b82f6) 76%, transparent);
+}
+.t3plus-w-cell[data-level="4"] {
+  background-color: var(--primary, #3b82f6);
+}
+.t3plus-w-cell[data-future] {
+  background-color: transparent;
+}
+.t3plus-w-cell[data-today] {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--foreground) 55%, transparent);
+}
+
+@media (forced-colors: active) {
+  .t3plus-w {
+    background: Canvas;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    border-color: CanvasText;
+  }
+  .t3plus-w-cell[data-level]:not([data-level="0"]) {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
+}
+
+/* ---------- Home tooltip and hover (src/homeTooltip.js) ---------- */
+
+/* T3's chart tooltip (UsageProviderChart.tsx): surface-glass, rounded-xl,
+   border-border/50, px-2.5 py-2, text-xs, shadow-lg. Motion as T3's tooltip
+   popup (ui/tooltip.tsx): fade + scale from 98%, and a short glide between
+   targets like its positioner. Fixed on <body>, never takes the pointer. */
+.t3plus-tip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 140;
+  min-width: 9rem;
+  max-width: 18rem;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--background, #0a0a0a) var(--glass-opacity, 78%), transparent);
+  -webkit-backdrop-filter: blur(var(--glass-blur, 16px)) saturate(var(--glass-saturation, 1.4));
+  backdrop-filter: blur(var(--glass-blur, 16px)) saturate(var(--glass-saturation, 1.4));
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.25), 0 4px 6px -4px rgb(0 0 0 / 0.2);
+  color: var(--foreground);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  pointer-events: none;
+  opacity: 0;
+  scale: 0.98;
+  transform-origin: bottom center;
+  translate: var(--tip-x, 0) var(--tip-y, 0);
+  transition:
+    opacity 150ms ease,
+    scale 150ms ease,
+    translate 140ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.t3plus-tip[data-open] {
+  opacity: 1;
+  scale: 1;
+}
+
+/* First appearance: show in place; only opacity and scale animate. */
+.t3plus-tip[data-instant] {
+  transition:
+    opacity 150ms ease,
+    scale 150ms ease;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .t3plus-tip {
+    background: var(--background, #0a0a0a);
+  }
+}
+
+.t3plus-tip-label {
+  margin-bottom: 0.25rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+.t3plus-tip-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.t3plus-tip-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+.t3plus-tip-swatch {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex: none;
+  border-radius: 2px;
+}
+
+.t3plus-tip-value {
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.t3plus-tip-total {
+  margin-top: 0.25rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--border);
+}
+
+/* Chart crosshair: T3's hover line (muted, 1px) plus a dot on each series. */
+.t3plus-w-plot {
+  cursor: crosshair;
+}
+
+.t3plus-w-hover {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0;
+  transition:
+    opacity 150ms ease,
+    left 90ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.t3plus-w-hover[data-on] {
+  opacity: 1;
+}
+
+.t3plus-w-hover-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -0.5px;
+  width: 1px;
+  background: var(--muted-foreground);
+  opacity: 0.7;
+}
+
+.t3plus-w-hover-dot {
+  position: absolute;
+  left: -0.25rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-top: -0.25rem;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px var(--card, #111);
+  transition: top 90ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Heatmap: the hovered day gets a ring. */
+.t3plus-w-cell:not([data-future]) {
+  transition: box-shadow 120ms ease;
+}
+
+.t3plus-w-cell:not([data-future]):hover {
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--foreground) 70%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t3plus-tip,
+  .t3plus-tip[data-instant],
+  .t3plus-w-hover,
+  .t3plus-w-hover-dot,
+  .t3plus-w-cell:not([data-future]) {
+    transition: none;
+  }
+}
+
+/* ---------- Compact sidebar header ---------- */
+
+/* T3's logo row (the sidebar's first row, with the "T3 Code home" link) is
+   hidden, so search, filter, new project and new chat are the first row. */
+html[data-t3plus-compact-sidebar] [data-slot="sidebar-inner"] > :first-child:has(a[aria-label="T3 Code home"]) {
+  display: none !important;
+}
+
+/* While the sidebar is open in a chat, T3's own fixed sidebar control sits in
+   the header right before the breadcrumbs, and the header makes room for it
+   (T3 does the same when the sidebar is collapsed). */
+html[data-t3plus-control-in-header] [data-sidebar-control] {
+  left: calc(var(--t3plus-sidebar-right, 16rem) + 0.75rem) !important;
+}
+
+html[data-t3plus-control-in-header] [data-chat-header] {
+  padding-left: 3.5rem !important;
+}
+
+/* The new first row (search, filter, new project, new chat) takes the header's
+   height and centers its controls, so they line up with T3's sidebar button and
+   the breadcrumbs across the top (all centered on the same line). */
+html[data-t3plus-compact-sidebar] [data-slot="sidebar-inner"] > :first-child:has(a[aria-label="T3 Code home"]) + * > :first-child {
+  min-height: var(--workspace-topbar-height, 52px);
+  justify-content: center;
+}
+
+/* ---------- Title-first thread rows ----------
+   T3's card row has up to three lines: project + status, title, and a meta
+   line (branch, worktree or environment, then T3's icons). With "Title first"
+   on, a grid re-flows them without moving anything in the DOM:
+     title ............................ status/time
+     [icon] project · meta line ......... icons
+   The first two lines become display: contents so their children land in the
+   grid; the meta line stays one flex item (its own leading icon, label and
+   icons keep T3's layout), so every meta-line shape works. Hover widens only
+   the status cell: the second line never moves. Bot rows keep their layout. */
+html[data-t3plus-title-first] [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr) auto;
+  grid-template-rows: 1.25rem 1.25rem;
+  row-gap: 0.125rem;
+  align-items: center;
+  height: auto !important;
+}
+html[data-t3plus-title-first] [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) > :is(.h-5, .mt-1) {
+  display: contents !important;
+}
+/* Line 1: the title, then T3's status slot (time, or Snooze/Settle on hover). */
+html[data-t3plus-title-first] [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) > .mt-1 > [dir] {
+  grid-area: 1 / 1 / 2 / 4;
+}
+html[data-t3plus-title-first] [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) > .h-5 > .group\/sidebar-status-slot {
+  grid-area: 1 / 4;
+  justify-self: end;
+  margin-left: 0.375rem;
+}
+/* Line 2: project icon and name... */
+html[data-t3plus-title-first] [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) > .h-5 > :first-child:not(.truncate, .group\/sidebar-status-slot) {
+  grid-area: 2 / 1;
+  margin-right: 0.375rem;
+}
+html[data-t3plus-title-first] [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) > .h-5 > .truncate {
+  grid-area: 2 / 2;
+  max-width: 10rem;
+}
+/* ...then the meta line as one piece, after a dot. */
+html[data-t3plus-title-first] [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) > .mt-0\.5 {
+  grid-area: 2 / 3 / 3 / 5;
+  min-width: 0;
+  margin-top: 0 !important;
+}
+html[data-t3plus-title-first] [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) > .mt-0\.5::before {
+  content: "\00b7";
+  flex: none;
+  margin-left: 0.25rem;
+}
+/* Rows without a meta line: T3's icons sit at the end of line 2. */
+html[data-t3plus-title-first] [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) > .mt-1 > :not([dir]) {
+  grid-area: 2 / 3 / 3 / 5;
+  justify-self: end;
+}
+
+/* Settle is just its check mark (the label is in its tooltip and aria-label),
+   so the title keeps more room on hover. */
+[data-sidebar-row] button[aria-label="Settle thread"] {
+  gap: 0 !important;
+  font-size: 0 !important;
+}
+
+/* ---------- t3+ settings section ----------
+   While the t3+ entry is open, T3's sections on the current settings page are
+   hidden, the t3+ panel shows alone, and T3's own active nav item and
+   breadcrumb defer to t3+. */
+html[data-t3plus-settings] [data-settings-page-scroll] > div > :not(#t3plus-appearance) {
+  display: none !important;
+}
+html[data-t3plus-settings] [data-settings-section][data-active="true"]:not([data-t3plus-owned]):not(:hover) {
+  background-color: transparent !important;
+  color: color-mix(in oklab, var(--sidebar-muted-foreground) 80%, transparent) !important;
+}
+html[data-t3plus-settings] [data-settings-section][data-active="true"]:not([data-t3plus-owned]):not(:hover) > svg {
+  color: var(--sidebar-icon-color) !important;
+}
+html[data-t3plus-settings] nav[aria-label="Settings breadcrumb"] li[aria-current="page"] {
+  font-size: 0 !important;
+}
+html[data-t3plus-settings] nav[aria-label="Settings breadcrumb"] li[aria-current="page"]::after {
+  content: "t3+";
+  font-size: 0.875rem;
+}
+html[data-t3plus-settings] #t3plus-appearance {
+  margin-top: 0;
+}
+
+.t3plus-advanced {
+  margin-top: 0.5rem;
+}
+.t3plus-advanced-summary {
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.25rem 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  user-select: none;
+}
+.t3plus-advanced-summary::-webkit-details-marker {
+  display: none;
+}
+.t3plus-advanced-summary::before {
+  content: "";
+  width: 0.4rem;
+  height: 0.4rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 150ms ease;
+}
+.t3plus-advanced[open] > .t3plus-advanced-summary::before {
+  transform: rotate(45deg);
+}
+.t3plus-advanced-summary:hover {
+  color: var(--foreground);
+}
+
+/* ---------- Thread details ----------
+   T3's thread details card (dropdown-glass) gets the same material as the
+   home widget cards and the glass composer, so the three read as one set. */
+[data-thread-details-card] {
+  border-color: color-mix(in srgb, var(--border) 60%, transparent) !important;
+  background-color: color-mix(in srgb, var(--card, #111) 74%, transparent) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(1.3) !important;
+  backdrop-filter: blur(14px) saturate(1.3) !important;
+}
+
+/* Usage limits: the provider's pool chart replaces T3's rows. */
+[data-t3plus-details-pool] > :not([data-t3plus-owned]) {
+  display: none !important;
+}
+.t3plus-details-pool .t3plus-w {
+  padding: 0.25rem 0.625rem 0.125rem;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* On the new-thread page the widgets under the composer already show both
+   pools, so the thread details leave usage limits out. */
+html[data-t3plus-home] [data-thread-details-card] section[aria-label="Usage limits"] {
+  display: none !important;
+}
+/* The details card is 280 px wide: a smaller number and one tight line. */
+.t3plus-details-pool .t3plus-w-pool-head {
+  gap: 0.3rem;
+  font-size: 0.6875rem;
+  white-space: nowrap;
+}
+.t3plus-details-pool .t3plus-w-pool-head > * {
+  white-space: nowrap;
+}
+.t3plus-details-pool .t3plus-w-big-num {
+  font-size: 1.125rem;
+}
+.t3plus-details-pool .t3plus-w-plot {
+  margin-top: 0.625rem;
+}
+.t3plus-details-pool .t3plus-w {
+  padding-bottom: 0.375rem;
+}
+
+/* ---------- Screenshot mode ----------
+   Project letter badges show the stand-in project's initials (demoMode.js);
+   the <img> keeps T3's src. */
+html[data-t3plus-demo] img[data-t3plus-demo-badge] {
+  content: var(--t3plus-demo-badge);
+}

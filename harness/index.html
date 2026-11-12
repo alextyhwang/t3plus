@@ -1,0 +1,405 @@
+<!doctype html>
+<!--
+  t3+ visual harness: a static TEST FIXTURE shaped like T3 Code, not a product UI.
+  It reproduces T3's own layout (header, narrow sidebar with card rows, conversation
+  pane, composer) so screenshots show t3+ as the small overlay it is. Markup follows
+  pingdotgg/t3code (SidebarThreadRow.tsx card variant, ui/sidebar.tsx, ChatComposer /
+  ComposerSurface); theme tokens are the dark values app.t3.codes serves (2026-11-11).
+  Nothing here is t3+ UI: everything t3+ adds comes from /dist/content.{js,css}.
+  Run: npm run harness, then open
+    /env1/a1               a thread page
+    /settings/appearance   Settings -> Appearance (t3+ section is appended)
+    /usage                 T3's Usage page chart (UsageProviderChart.tsx markup, synthetic data)
+  Query: ?seed=<settings json>  ?config=<t3plus.json>  ?view=<profile view json>  ?bots=<json>  ?light
+-->
+<html lang="en" class="dark">
+  <head>
+    <meta charset="utf-8" />
+    <title>T3 Code (t3+ harness)</title>
+    <style>
+      :root {
+        --background: #fff; --foreground: oklch(14.5% 0 0); --card: #fff; --card-foreground: oklch(14.5% 0 0);
+        --primary: oklch(48.8% 0.217 264); --ring: var(--primary);
+        --muted: color-mix(in oklab, #000 4%, transparent); --muted-foreground: oklch(55.6% 0 0);
+        --accent: color-mix(in oklab, #000 4%, transparent); --border: color-mix(in oklab, #000 10%, transparent);
+        --input: color-mix(in oklab, #000 12%, transparent);
+        --sidebar: oklch(98.5% 0 0); --sidebar-foreground: oklch(14.5% 0 0); --sidebar-muted-foreground: oklch(55.6% 0 0);
+        --sidebar-border: color-mix(in oklab, #000 8%, transparent);
+        --sidebar-row-hover: color-mix(in oklab, #000 4%, transparent); --sidebar-row-active: color-mix(in oklab, #000 6%, transparent);
+        --secondary-label: oklch(55.6% 0 0);
+        --info: oklch(62.3% 0.214 259.815); --warning: oklch(76.9% 0.188 70.08); --success: oklch(69.6% 0.17 162.48); --destructive: oklch(63.7% 0.237 25.331);
+        --info-foreground: oklch(54.6% 0.245 262.881); --warning-foreground: oklch(66.6% 0.179 58.318); --success-foreground: oklch(59.6% 0.145 163.225);
+        --control-radius: 0.5rem; --sidebar-content-inset: 0.5rem; --sidebar-row-content-inset: 0.625rem;
+        --workspace-topbar-height: 52px;
+        --glass-blur: 16px; --glass-opacity: 80%; --glass-saturation: 1.08;
+        /* T3's stack, with Windows' variable Segoe ahead of plain Segoe UI: T3 ships Inter Variable
+           (weight 500 = medium); static Segoe UI would round 500 up to semibold. */
+        --font-sans: -apple-system, BlinkMacSystemFont, "Inter Variable", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+      }
+      :root.dark {
+        --background: #000; --foreground: oklch(97% 0 none);
+        --card: color-mix(in srgb, oklch(14.5% 0 none) 97%, #fff); --card-foreground: oklch(97% 0 none);
+        --primary: oklch(57.1% 0.21 264);
+        --muted: color-mix(in oklab, #fff 3%, transparent); --muted-foreground: oklch(70.8% 0 none);
+        --accent: color-mix(in oklab, #fff 4%, transparent); --border: color-mix(in oklab, #fff 8%, transparent);
+        --input: color-mix(in oklab, #fff 11%, transparent);
+        --sidebar: color-mix(in srgb, oklch(14.5% 0 none) 97%, #fff); --sidebar-foreground: oklch(97% 0 none);
+        --sidebar-muted-foreground: oklch(70.8% 0 none); --sidebar-border: color-mix(in oklab, #fff 8%, transparent);
+        --sidebar-row-hover: color-mix(in oklab, #fff 4%, transparent); --sidebar-row-active: color-mix(in oklab, #fff 4%, transparent);
+        --secondary-label: oklch(70.8% 0 none);
+        --info-foreground: oklch(70.7% 0.165 254.624); --warning-foreground: oklch(82.8% 0.189 84.429);
+        --success-foreground: oklch(76.5% 0.177 163.223); --destructive: color-mix(in srgb, oklch(63.7% 0.237 25.331) 90%, #fff);
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body { margin: 0; display: flex; overflow: hidden; background: var(--background); color: var(--foreground);
+        font: 14px/1.5 var(--font-sans); -webkit-font-smoothing: antialiased; }
+      button { font: inherit; color: inherit; }
+      svg.i { width: 1rem; height: 1rem; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+      svg.i.s3 { width: 0.75rem; height: 0.75rem; }
+      svg.i.s35 { width: 0.875rem; height: 0.875rem; }
+      .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+      .icon-btn { display: inline-flex; width: 1.75rem; height: 1.75rem; align-items: center; justify-content: center; border: 0; border-radius: var(--control-radius);
+        background: transparent; color: var(--sidebar-muted-foreground); }
+
+      /* ---- Sidebar (ui/sidebar.tsx) ---- */
+      [data-slot="sidebar-container"] { width: 16rem; flex: none; border-right: 1px solid var(--sidebar-border); }
+      [data-slot="sidebar-inner"] { display: flex; height: 100%; flex-direction: column; background: var(--sidebar); color: var(--sidebar-foreground); }
+      .topbar { display: flex; height: var(--workspace-topbar-height); flex: none; align-items: center; gap: 0.5rem; padding: 0 0.75rem 0 0.75rem; }
+      .topbar .icon-btn { border: 1px solid var(--border); background: var(--accent); color: var(--foreground); }
+      .brand { color: inherit; text-decoration: none; display: inline-flex; align-items: baseline; gap: 0.25rem; font-size: 0.875rem; font-weight: 500; letter-spacing: -0.01em; }
+      .brand svg { height: 0.7em; width: auto; fill: currentColor; }
+      .brand span { color: var(--muted-foreground); }
+      [data-slot="sidebar-group"].search-group { padding: var(--sidebar-content-inset); }
+      .search { display: flex; align-items: center; gap: 0.25rem; }
+      .search-field { display: flex; height: 2rem; min-width: 0; flex: 1; align-items: center; gap: 0.5rem; padding: 0 0.5rem; border-radius: 0.375rem;
+        font-size: 0.875rem; font-weight: 500; color: var(--sidebar-muted-foreground); }
+      [data-slot="scroll-area"] { position: relative; min-height: 0; flex: 1; overflow: hidden; }
+      [data-slot="scroll-area-viewport"] { height: 100%; overflow: auto; scrollbar-width: none; }
+      [data-slot="sidebar-content"] > [data-slot="sidebar-group"] { padding: 0 var(--sidebar-content-inset); }
+      ul.rows { margin: 0; padding: 0; list-style: none; }
+      [data-slot="sidebar-footer"] { display: flex; align-items: center; gap: 0.25rem; padding: 0.25rem var(--sidebar-content-inset) var(--sidebar-content-inset); }
+      [data-slot="sidebar-footer"] .spacer { flex: 1; }
+      [data-slot="sidebar-footer"] .round { border-radius: 999px; background: var(--accent); color: var(--foreground); }
+
+      /* ---- Thread row, card variant (SidebarThreadRow.tsx) ---- */
+      li[data-thread-item] { padding: 0.125rem 0; }
+      [data-sidebar-row][data-testid="sidebar-row-card"] { position: relative; display: block; width: 100%; overflow: hidden; border-radius: 0.375rem;
+        color: var(--sidebar-foreground); cursor: pointer; outline: none; user-select: none; }
+      [data-sidebar-row][data-testid="sidebar-row-card"]:hover { background-color: var(--sidebar-row-hover); }
+      [data-sidebar-row][aria-current="page"] { background-color: var(--sidebar-row-active); }
+      [data-sidebar-row]:focus-visible { box-shadow: inset 0 0 0 2px var(--ring); }
+      .row-body { position: relative; z-index: 10; height: 4.875rem; padding: var(--sidebar-content-inset) var(--sidebar-row-content-inset); }
+      .row-body.compact { height: auto; }
+      .line1 { display: flex; height: 1.25rem; min-width: 0; align-items: center; gap: 0.375rem; }
+      .fav { display: inline-flex; width: 1rem; height: 1rem; flex: none; align-items: center; justify-content: center; border-radius: 0.25rem;
+        background: var(--fav, #555); color: #fff; font-size: 7px; font-weight: 700; letter-spacing: 0.02em; }
+      .pin { color: color-mix(in srgb, var(--muted-foreground) 65%, transparent); }
+      .project { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.75rem; color: var(--secondary-label); }
+      .slot { display: flex; height: 1.25rem; min-width: 2rem; flex: none; align-items: center; justify-content: flex-end; margin-left: auto;
+        font-size: 0.75rem; font-variant-numeric: tabular-nums; color: var(--secondary-label); }
+      .slot .st { display: inline-flex; align-items: center; gap: 0.25rem; font-weight: 500; }
+      .slot .st svg.i { width: 1rem; height: 1rem; }
+      .st.working { color: var(--info-foreground); } .st.approval, .st.woke { color: var(--warning-foreground); } .st.done { color: var(--success-foreground); }
+      .line2 { display: flex; min-width: 0; align-items: center; gap: 0.375rem; margin-top: 0.25rem; }
+      /* T3's title state classes (SidebarThreadRow.tsx): seen threads recede to 75% until hovered or open. */
+      .title.text-foreground { color: var(--foreground); }
+      .title.text-foreground\/75 { color: color-mix(in srgb, var(--foreground) 75%, transparent); }
+      [data-sidebar-row]:hover .title.text-foreground\/75 { color: var(--foreground); }
+      .title.font-normal { font-weight: 400 !important; }
+      .line2 > .title { min-width: 0; flex: 1 1 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: start;
+        font-size: 0.875rem; font-weight: 500; color: var(--foreground); }
+      .meta { display: flex; min-width: 0; align-items: center; gap: 0.375rem; margin-top: 0.125rem; font-size: 0.75rem; color: var(--secondary-label); }
+      .meta .branch { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .trail { display: inline-flex; flex: none; align-items: center; gap: 0.25rem; margin-left: auto; color: color-mix(in srgb, var(--sidebar-muted-foreground) 70%, transparent); }
+      .trail svg.i { width: 0.875rem; height: 0.875rem; }
+
+      /* Settings sidebar (no thread rows: t3+ adds nothing here). */
+      .settings-nav { display: flex; flex-direction: column; gap: 1px; padding: 0 var(--sidebar-content-inset); }
+      .settings-nav a { display: flex; height: 2rem; align-items: center; gap: 0.5rem; padding: 0 0.5rem; border-radius: 0.375rem;
+        color: var(--sidebar-muted-foreground); font-size: 0.875rem; font-weight: 500; text-decoration: none; }
+      .settings-nav a[aria-current="page"] { background: var(--sidebar-row-active); color: var(--sidebar-foreground); }
+
+      /* ---- Main pane ---- */
+      main[data-slot="sidebar-inset"] { display: flex; min-width: 0; flex: 1; flex-direction: column; background: var(--background); }
+      .workspace-header { display: flex; height: var(--workspace-topbar-height); flex: none; align-items: center; gap: 0.625rem; padding: 0 0.75rem 0 1.25rem; }
+      .crumbs { display: flex; min-width: 0; flex: 1; align-items: center; gap: 0.5rem; font-size: 0.875rem; font-weight: 500; }
+      .crumbs .muted { color: var(--muted-foreground); }
+      .crumbs .sep { color: color-mix(in srgb, var(--muted-foreground) 60%, transparent); }
+      .workspace-header .tools { display: flex; gap: 0.25rem; }
+      .workspace-header .tools .icon-btn { color: var(--foreground); }
+      .workspace-header .tools .icon-btn.on { background: var(--accent); }
+
+      [data-workspace-area="conversation"] { position: relative; display: flex; min-height: 0; flex: 1; flex-direction: column; background: var(--background); }
+      .timeline { min-height: 0; flex: 1; overflow: auto; padding: 1.5rem 1.5rem 13rem; scrollbar-width: none; }
+      .turn { max-width: 42rem; margin: 0 auto 1.25rem; font-size: 0.875rem; line-height: 1.65; }
+      .turn.user { display: flex; justify-content: flex-end; }
+      .turn.user > div { max-width: 80%; padding: 0.625rem 0.875rem; border-radius: 1rem; background: var(--muted); border: 1px solid var(--border); }
+      .turn p { margin: 0 0 0.625rem; } .turn p:last-child { margin-bottom: 0; }
+      .turn code { font: 0.8125rem ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 0.0625rem 0.3125rem; border-radius: 0.25rem; background: var(--muted); }
+      .turn .work { display: inline-flex; align-items: center; gap: 0.375rem; margin-bottom: 0.625rem; font-size: 0.8125rem; color: var(--muted-foreground); }
+
+      /* Composer (ChatView overlay, ComposerSurface.Shell: its ::before is T3's glass layer). */
+      [data-chat-composer-overlay="true"] { position: absolute; inset: auto 0 0 0; padding: 0 1.5rem 0.75rem; pointer-events: none; }
+      /* Draft hero (ChatView.tsx): the overlay is a sibling of the conversation area, centered (items-center). */
+      .hero-wrap { position: relative; display: flex; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
+      .hero-wrap > [data-workspace-area="conversation"] { flex: 1; }
+      .hero-wrap .bg-background { height: 100%; background: var(--background); }
+      [data-chat-composer-overlay="true"].hero-overlay { inset: 0; display: flex; padding: 0 1.5rem; z-index: 20; }
+      [data-chat-composer-overlay="true"].items-center { align-items: center; }
+      .hero-lane { width: 100%; }
+      [data-chat-composer-stack="true"] { position: relative; z-index: 10; width: 100%; max-width: 46rem; margin: 0 auto; pointer-events: auto; }
+      .hero-headline { position: absolute; left: 0; right: 0; bottom: 100%; padding-bottom: 1rem; text-align: center; }
+      .hero-headline h1 { margin: 0; font-size: 1.75rem; font-weight: 600; letter-spacing: -0.01em; }
+      .hero-headline p { margin: 0.375rem 0 0; color: var(--muted-foreground); font-size: 0.875rem; }
+      [data-slot="composer-shell"] { --chat-composer-glass-surface: var(--card); --chat-composer-outline: var(--border);
+        position: relative; isolation: isolate; max-width: 42rem; margin: 0 auto; pointer-events: auto; }
+      [data-slot="composer-shell"]::before { content: ""; position: absolute; inset: 0; z-index: 0; border-radius: 1.25rem; pointer-events: none;
+        background: color-mix(in oklab, var(--chat-composer-glass-surface) var(--glass-opacity), transparent);
+        -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)); backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation)); }
+      [data-chat-composer-main-surface="true"] { position: relative; z-index: 10; border-radius: 1.25rem; }
+      [data-chat-composer-main-surface="true"]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; border: 1px solid var(--chat-composer-outline); pointer-events: none; }
+      [data-chat-composer-surface="true"] { border-radius: 1.25rem; }
+      [data-chat-composer-body="true"] { padding: 0.875rem 1.125rem 0.25rem; }
+      [data-testid="composer-editor"] { min-height: 3.25rem; outline: none; font-size: 0.875rem; line-height: 1.6; }
+      [data-chat-composer-footer="true"] { display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.625rem 0.625rem; color: var(--muted-foreground); }
+      [data-chat-composer-footer="true"] .grow { flex: 1; }
+      .model { display: inline-flex; align-items: center; gap: 0.375rem; padding: 0 0.375rem; font-size: 0.875rem; font-weight: 500; color: var(--muted-foreground); }
+      .send { display: inline-flex; width: 2rem; height: 2rem; align-items: center; justify-content: center; border: 0; border-radius: 999px;
+        background: oklch(62% 0.2 258); color: #fff; }
+      .composer-env { display: flex; max-width: 42rem; margin: 0.375rem auto 0; padding: 0 0.75rem; justify-content: space-between;
+        font-size: 0.8125rem; color: var(--muted-foreground); pointer-events: auto; }
+      .composer-env span { display: inline-flex; align-items: center; gap: 0.375rem; }
+
+      /* Settings page */
+      .settings-scroll { min-height: 0; flex: 1; overflow: auto; }
+      #page-container { max-width: 48rem; margin: 0 auto; padding: 1.5rem 1.5rem 4rem; display: flex; flex-direction: column; gap: 2rem; }
+      .mock-section h2 { margin: 0 0 0.625rem; padding: 0 1rem; font-size: 0.875rem; font-weight: 400; color: color-mix(in srgb, var(--foreground) 70%, transparent); }
+      .mock-card { border-radius: 0.75rem; border: 1px solid color-mix(in srgb, var(--border) 60%, transparent); background: color-mix(in srgb, var(--card) 40%, transparent); }
+      .mock-row { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; font-size: 0.875rem; font-weight: 500; }
+      .mock-row + .mock-row { border-top: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
+      .mock-row small { display: block; margin-top: 0.25rem; font-size: 13px; font-weight: 400; color: color-mix(in srgb, var(--muted-foreground) 80%, transparent); }
+      .mock-value { padding: 0.25rem 0.625rem; border-radius: 0.375rem; border: 1px solid var(--border); font-size: 13px; font-weight: 400; color: var(--muted-foreground); }
+    </style>
+    <script src="/harness/chrome-stub.js"></script>
+    <link rel="stylesheet" href="/dist/content.css" />
+    <script src="/dist/content.js" defer></script>
+  </head>
+  <body>
+    <div data-slot="sidebar-container">
+      <div data-sidebar="sidebar" data-slot="sidebar-inner" id="sidebar-inner"></div>
+    </div>
+    <main data-slot="sidebar-inset" id="main"></main>
+    <script>
+      // Lucide icon paths (T3 uses lucide-react).
+      const ICONS = {
+        panel: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m16 15-3-3 3-3"/>',
+        search: '<path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/>',
+        filter: '<path d="M3 6h18"/><path d="M7 12h10"/><path d="M10 18h4"/>',
+        folderPlus: '<path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+        pen: '<path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z"/>',
+        pin: '<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>',
+        monitor: '<rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
+        provider: '<circle cx="12" cy="12" r="10"/><path d="m14.31 8 5.74 9.94"/><path d="M9.69 8h11.48"/><path d="m7.38 12 5.74-9.94"/><path d="M9.69 16 3.95 6.06"/><path d="M14.31 16H2.83"/><path d="m16.62 12-5.74 9.94"/>',
+        gear: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+        pr: '<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M6 9v12"/>',
+        chart: '<path d="M18 20V10"/><path d="M12 20V4"/><path d="M6 20v-6"/>',
+        upCircle: '<circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4"/><path d="M12 16V8"/>',
+        clip: '<path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"/>',
+        mic: '<path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/>',
+        arrowUp: '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
+        shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
+        logs: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 8h10"/><path d="M7 12h10"/><path d="M7 16h10"/>',
+        panelBottom: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 15h18"/>',
+        panelRight: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/>',
+        loader: '<path d="M21 12a9 9 0 1 1-6.219-8.56"/>',
+        alarm: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2"/><path d="M5 3 2 6"/><path d="m22 6-3-3"/>',
+        alert: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/>',
+        back: '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+        palette: '<circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/>',
+      };
+      const icon = (name, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
+      const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+      const T3_LOGO = '<svg aria-label="T3" viewBox="15.5 37 94.4 57"><path d="M33.45 93V47.56H15.53V37h48.8v10.56H46.41V93H33.45Zm53.28.96c-3.9 0-7.76-.5-11.6-1.52-3.84-1.07-7.1-2.56-9.76-4.48l5.04-9.92c2.13 1.55 4.61 2.77 7.44 3.68 2.83.9 5.68 1.36 8.56 1.36 3.25 0 5.81-.64 7.68-1.92 1.87-1.28 2.8-3.04 2.8-5.28 0-2.13-.83-3.81-2.48-5.04-1.65-1.23-4.32-1.84-8-1.84h-5.92v-8.56l15.6-17.68 1.44 4.64H68.17V37h39.2v8.4L91.85 63.08l-6.56-3.76h3.76c6.88 0 12.08 1.55 15.6 4.64 3.52 3.09 5.28 7.07 5.28 11.92 0 3.15-.83 6.1-2.48 8.88-1.65 2.72-4.19 4.93-7.6 6.64-3.41 1.7-7.79 2.56-13.12 2.56Z"/></svg>';
+
+      const params = new URLSearchParams(location.search);
+      if (params.has("light")) document.documentElement.classList.remove("dark");
+      const route = location.pathname.split("/").filter(Boolean);
+      const currentKey = route.length === 2 ? route.join(":") : null;
+      const isSettings = route[0] === "settings";
+
+      // ---- Thread rows: SidebarThreadRow card variant ----
+      // { key, project, fav: [initials, color], title, pinned, time, status: [kind, label, extra], branch, machine }
+      const THREADS = [
+        { key: "env1:bot1", project: "ops", fav: ["OP", "#0e9f6e"], title: "[[t3plus:bot:v1]] Orchestrator", pinned: true, status: ["working", "Working", "4m"], branch: "main" },
+        { key: "env2:bot2", seen: true, project: "ops", fav: ["OP", "#b45309"], title: "[[t3plus:bot:v1]] Release Captain", pinned: true, time: "9m", branch: "master" },
+        { key: "env2:bot3", seen: true, project: "docs", fav: ["DO", "#0f766e"], title: "[[t3plus:bot:v1]] Inbox triage", pinned: true, status: ["done", "Done", "1h"] },
+        { key: "env2:bot4", seen: true, project: "ops", fav: ["OP", "#b45309"], title: "[[t3plus:bot:v1]] Dependency Bot", pinned: true, status: ["approval", "Approval"] },
+        { key: "env2:bot5", seen: true, project: "docs", fav: ["DO", "#0f766e"], title: "[[t3plus:bot:v1]] Nightly sync", pinned: true, status: ["waiting", "Waiting", "2m"] },
+        { key: "env1:a1", project: "acme-api", fav: ["AA", "#0e9f6e"], title: "Fix login redirect", pinned: true, time: "5h", branch: "master" },
+        { key: "env2:t1", seen: true, project: "docs", fav: ["DO", "#0f766e"], title: "Update API reference", time: "11m" },
+        { key: "env1:w1", seen: true, project: "acme-web", fav: ["AW", "#7c3aed"], title: "Landing page hero", status: ["approval", "Approval"], branch: "master" },
+        { key: "env2:n1", seen: true, project: "notes", fav: ["N", "#16a34a"], title: "Weekly notes and reading list", time: "58m", branch: "main", machine: true },
+        { key: "env1:a2", seen: true, project: "acme-api", fav: ["AA", "#0e9f6e"], title: "Add request metrics", time: "2h", branch: "main" },
+        { key: "env2:i1", seen: true, project: "infra", fav: ["IN", "#0891b2"], title: "Resume nightly backups", status: ["woke", "Woke"], branch: "main" },
+        { key: "env2:n2", seen: true, project: "notes", fav: ["N", "#16a34a"], title: "Card collection binder", time: "19h", branch: "master" },
+        { key: "env1:g1", seen: true, project: "github", fav: ["GB", "#4b5563"], title: "Sidebar redesign review", time: "1d" },
+      ];
+      const STATUS_ICON = { working: "loader", approval: "alert", woke: "alarm", done: "alert", waiting: "alarm" };
+      function cardRow(t) {
+        const status = t.status ? t.status[1] : null;
+        const label = [t.title, status, t.project].filter(Boolean).join(", ");
+        const trail = `<span aria-hidden="true" class="trail">${t.machine ? icon("monitor") : ""}${icon("monitor")}${icon("provider")}</span>`;
+        const slot = t.status
+          ? `<span class="st ${t.status[0]}">${icon(STATUS_ICON[t.status[0]])}${t.status[1]}${t.status[2] ? ` <span aria-hidden="true">${t.status[2]}</span>` : ""}</span>`
+          : `<span>${t.time}</span>`;
+        const meta = t.branch ? `<div class="meta"><span class="branch">${esc(t.branch)}</span>${trail}</div>` : "";
+        return `<li data-thread-item="${esc(t.key)}" class="list-none">
+          <div role="button" tabindex="0" data-sidebar-row="${esc(t.key)}" aria-label="${esc(label)}" data-testid="sidebar-row-card"${t.key === currentKey ? ' aria-current="page"' : ""}>
+            <span class="sr-only">${esc(t.title)}</span>
+            <div class="row-body relative z-10${t.branch ? "" : " compact"}">
+              <div class="line1"><span class="fav" style="--fav:${t.fav[1]}">${t.fav[0]}</span>${t.pinned ? `<span class="pin">${icon("pin", "s3")}</span>` : ""}
+                <span class="project">${esc(t.project)}</span><span class="slot group/sidebar-status-slot">${slot}</span></div>
+              <div class="line2"><span aria-hidden="true" dir="auto" class="title ${t.key === currentKey || !t.seen ? "font-medium text-foreground" : "font-normal text-foreground/75"}">${esc(t.title)}</span>${t.branch ? "" : trail}</div>
+              ${meta}
+            </div>
+          </div>
+        </li>`;
+      }
+
+      const topbar = `<div class="topbar"><button type="button" class="icon-btn" data-slot="sidebar-trigger" aria-label="Toggle main sidebar">${icon("panel")}</button>
+        <a class="brand" href="/" aria-label="T3 Code home">${T3_LOGO}<span>Code</span></a></div>`;
+      const inner = document.getElementById("sidebar-inner");
+      if (isSettings) {
+        inner.innerHTML = `${topbar}
+          <div class="w-full shrink-0"><div data-slot="sidebar-group" class="search-group"><div class="search"><div class="search-field">${icon("back")} Back</div></div></div></div>
+          <div data-slot="scroll-area"><div data-slot="scroll-area-viewport"><nav class="settings-nav">
+            <a href="#">${icon("gear")} General</a><a href="#" aria-current="page">${icon("palette")} Appearance</a>
+            <a href="#">${icon("provider")} Providers</a><a href="#">${icon("monitor")} Computers</a></nav></div></div>`;
+      } else {
+        inner.innerHTML = `${topbar}
+          <div class="w-full shrink-0"><div data-slot="sidebar-group" class="search-group"><div class="search">
+            <div class="search-field">${icon("search")}<span>Search</span></div>
+            <button type="button" class="icon-btn" aria-label="Filter">${icon("filter")}</button>
+            <button type="button" class="icon-btn" aria-label="Add project">${icon("folderPlus")}</button>
+            <button type="button" class="icon-btn" aria-label="New thread">${icon("pen")}</button></div></div></div>
+          <div data-slot="scroll-area"><div data-slot="scroll-area-viewport">
+            <div data-sidebar="content" data-slot="sidebar-content"><div data-slot="sidebar-group">
+              <ul class="rows" role="presentation" id="thread-list">${THREADS.map(cardRow).join("")}</ul>
+            </div></div></div></div>
+          <div data-slot="sidebar-footer"><button type="button" class="icon-btn" aria-label="Settings">${icon("gear")}</button>
+            <button type="button" class="icon-btn" aria-label="Pull requests">${icon("pr")}</button>
+            <button type="button" class="icon-btn" aria-label="Usage">${icon("chart")}</button><span class="spacer"></span>
+            <button type="button" class="icon-btn round" aria-label="Update">${icon("upCircle")}</button></div>`;
+      }
+
+      // ---- Main pane ----
+      const main = document.getElementById("main");
+      const thread = THREADS.find((t) => t.key === currentKey) ?? THREADS[1];
+      const header = (crumbs) => `<header class="workspace-header"><div class="crumbs">${crumbs}</div>
+        <div class="tools"><button type="button" class="icon-btn on" aria-label="Logs">${icon("logs")}</button>
+        <button type="button" class="icon-btn" aria-label="Terminal">${icon("panelBottom")}</button>
+        <button type="button" class="icon-btn" aria-label="Right panel">${icon("panelRight")}</button></div></header>`;
+      if (route[0] === "draft") {
+        main.innerHTML = `${header('<span class="muted">New thread</span>')}
+          <div class="hero-wrap">
+            <div data-workspace-area="conversation" role="region" aria-label="Conversation"><div class="h-full min-h-0 bg-background"></div></div>
+            <div data-chat-composer-overlay="true" class="hero-overlay items-center">
+              <div class="hero-lane"><div data-chat-composer-stack="true">
+                <div class="hero-headline"><h1>What should we build?</h1><p>or start without a project</p></div>
+                <div data-slot="composer-shell"><div data-chat-composer-main-surface="true">
+                  <div data-chat-composer-surface="true">
+                    <div data-chat-composer-body="true"><div data-testid="composer-editor" contenteditable="true" class="placeholder">Ask anything. @ files, $ skills, / commands</div></div>
+                    <div data-chat-composer-footer="true">
+                      <button type="button" class="icon-btn" aria-label="Attach">${icon("clip")}</button><span class="grow"></span>
+                      <span class="model">${icon("provider")} 6.1 Sol High</span>
+                      <button type="button" class="icon-btn" aria-label="Dictate">${icon("mic")}</button>
+                      <button type="button" class="send" aria-label="Send">${icon("arrowUp")}</button>
+                    </div>
+                  </div>
+                </div></div>
+                <div class="composer-env"><span>${icon("monitor", "s35")} studio-mac</span><span>${icon("shield", "s35")} Auto</span></div>
+              </div></div>
+            </div>
+          </div>`;
+      } else if (route[0] === "usage") {
+        // UsageProviderChart.tsx: 960x260 viewBox, monotone cubic per provider,
+        // areas (12% fill) first, then lines, heavier series painted first.
+        const VW = 960, VH = 260, TOP = 8, DAYS = 30;
+        const wave = (i, a, b, c) => Math.max(0, a + b * Math.sin(i / 4.2 + c) + 0.35 * b * Math.cos(i / 1.7 + c * 2));
+        const series = [
+          { name: "Claude", color: "#d97757", values: Array.from({ length: DAYS }, (_, i) => wave(i, 9e6, 6e6, 0.4) * (1 + i / 40)) },
+          { name: "Codex", color: "var(--contrast-foreground, var(--foreground))", values: Array.from({ length: DAYS }, (_, i) => wave(i, 5e6, 3.5e6, 2.1)) },
+        ];
+        const max = Math.ceil(Math.max(...series.flatMap((s) => s.values)) / 5e6) * 5e6;
+        const toY = (v) => VH - (v / max) * (VH - TOP);
+        const step = VW / (DAYS - 1);
+        const curve = (values) => {
+          const p = values.map((v, i) => ({ x: i * step, y: toY(v) }));
+          const m = p.map((_, i) => {
+            const a = i > 0 ? (p[i].y - p[i - 1].y) / step : null;
+            const b = i < p.length - 1 ? (p[i + 1].y - p[i].y) / step : null;
+            return a === null ? b : b === null ? a : a * b <= 0 ? 0 : (a + b) / 2;
+          });
+          let d = `M${p[0].x.toFixed(2)},${p[0].y.toFixed(2)}`;
+          for (let i = 0; i < p.length - 1; i += 1) d += ` C${(p[i].x + step / 3).toFixed(2)},${(p[i].y + (m[i] * step) / 3).toFixed(2)} ${(p[i + 1].x - step / 3).toFixed(2)},${(p[i + 1].y - (m[i + 1] * step) / 3).toFixed(2)} ${p[i + 1].x.toFixed(2)},${p[i + 1].y.toFixed(2)}`;
+          return d;
+        };
+        const ordered = [...series].sort((a, b) => b.values.reduce((n, v) => n + v, 0) - a.values.reduce((n, v) => n + v, 0));
+        const ticks = [0, max / 4, max / 2, (3 * max) / 4, max];
+        const fmt = (v) => (v === 0 ? "0" : `${(v / 1e6).toFixed(v % 1e6 ? 1 : 0)}M`);
+        main.innerHTML = `${header('<span class="muted">Usage</span>')}
+          <div class="settings-scroll"><div id="page-container" style="max-width: 60rem">
+            <section style="display:flex;flex-direction:column;gap:0.75rem">
+              <h2 style="margin:0;font-size:0.875rem;font-weight:500">Daily processed tokens</h2>
+              <div style="display:flex;flex-direction:column;gap:0.25rem">
+                <div style="display:flex;gap:0.5rem">
+                  <div style="position:relative;height:14rem;width:3.5rem;flex-shrink:0">${ticks.map((t) => `<span style="position:absolute;right:0;transform:translateY(-50%);top:${((toY(t) / VH) * 100).toFixed(2)}%;font-size:10px;color:var(--muted-foreground)">${fmt(t)}</span>`).join("")}</div>
+                  <div class="relative h-56 flex-1" style="position:relative;height:14rem;flex:1">
+                    <svg class="h-full w-full" style="display:block;width:100%;height:100%" viewBox="0 0 ${VW} ${VH}" preserveAspectRatio="none" role="img" aria-label="Daily processed tokens by provider">
+                      ${ticks.map((t) => `<line x1="0" x2="${VW}" y1="${toY(t)}" y2="${toY(t)}" stroke="currentColor" stroke-width="1" style="color:var(--border)" vector-effect="non-scaling-stroke"></line>`).join("")}
+                      ${ordered.map((s) => `<path d="${curve(s.values)} L${VW},${VH} L0,${VH} Z" fill="${s.color}" fill-opacity="0.12"></path>`).join("")}
+                      ${ordered.map((s) => `<path d="${curve(s.values)}" fill="none" stroke="${s.color}" stroke-width="2" vector-effect="non-scaling-stroke"></path>`).join("")}
+                    </svg>
+                  </div>
+                </div>
+                <div style="display:flex;justify-content:space-between;padding-left:4rem;font-size:10px;color:var(--muted-foreground);text-transform:uppercase"><span>Oct 14</span><span>Oct 28</span><span>Nov 12</span></div>
+              </div>
+            </section>
+          </div></div>`;
+      } else if (isSettings) {
+        const mock = (title, rows) => `<div class="mock-card">${rows.map(([t, d, v]) => `<div class="mock-row"><div>${t}<small>${d}</small></div><span class="mock-value">${v}</span></div>`).join("")}</div>`;
+        main.innerHTML = `${header('<span>Settings</span><span class="sep">/</span><span class="muted">Appearance</span>')}
+          <div class="settings-scroll" data-settings-page-scroll><div id="page-container">
+            <section id="appearance" class="mock-section"><h2>Colors &amp; themes</h2>${mock("", [["Theme", "Light, dark, or follow the system.", "Dark"], ["Accent", "Used for focus rings and primary buttons.", "Blue"]])}</section>
+            <section id="appearance-interface" class="mock-section"><h2>Interface</h2>${mock("", [["Sidebar rows", "Cards show project, branch and status.", "Cards"], ["Timestamps", "Relative or absolute times.", "Relative"]])}</section>
+          </div></div>`;
+      } else {
+        const turn = (html, user) => `<div class="turn${user ? " user" : ""}"><div>${html}</div></div>`;
+        main.innerHTML = `${header(`<span class="fav" style="--fav:${thread.fav[1]}">${thread.fav[0]}</span><span class="muted">${esc(thread.project)}</span><span class="sep">/</span><span>${esc(thread.title)}</span>`)}
+          <div data-workspace-area="conversation" role="region" aria-label="Conversation">
+            <div class="timeline">
+              ${turn("<p>After login the app sends people back to <code>/</code> instead of the page they came from. Can you fix it?</p>", true)}
+              ${turn(`<div class="work">${icon("pen", "s35")} Edited 2 files, ran 1 command</div><p>The redirect target was read from <code>document.referrer</code>, which is empty after the OAuth round trip. I now store the original path in the <code>state</code> parameter and read it back in the callback.</p><p>Added a test for a deep link with a query string. All 48 auth tests pass.</p>`)}
+              ${turn("<p>Nice. Open a PR when CI is green.</p>", true)}
+              ${turn("<p>Pushed <code>fix/login-redirect</code>. CI is running; I'll open the PR when the checks pass.</p>")}
+            </div>
+            <div data-chat-composer-overlay="true">
+              <div data-slot="composer-shell"><div data-chat-composer-main-surface="true">
+                <div data-chat-composer-surface="true">
+                  <div data-chat-composer-body="true"><div data-testid="composer-editor" contenteditable="true">Also check the logout redirect uses the same state parameter.</div></div>
+                  <div data-chat-composer-footer="true">
+                    <button type="button" class="icon-btn" aria-label="Attach">${icon("clip")}</button><span class="grow"></span>
+                    <span class="model">${icon("provider")} Opus 5.5 High</span>
+                    <button type="button" class="icon-btn" aria-label="Dictate">${icon("mic")}</button>
+                    <button type="button" class="send" aria-label="Send">${icon("arrowUp")}</button>
+                  </div>
+                </div>
+              </div></div>
+              <div class="composer-env"><span>${icon("monitor", "s35")} studio-mac</span><span>${icon("shield", "s35")} Auto</span></div>
+            </div>
+          </div>`;
+      }
+    </script>
+  </body>
+</html>

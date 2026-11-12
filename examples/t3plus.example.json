@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "updatedAt": "2026-11-11T22:30:00Z",
+  "controlThread": "env1:ctl-0001",
+  "botMarker": "[[t3plus:bot:v1]]",
+  "profiles": [
+    {
+      "id": "work",
+      "label": "Work",
+      "color": "#60a5fa",
+      "includeAll": true,
+      "excludeProjects": ["github.com/me/side-project", "/home/me/projects/notes"],
+      "projects": [],
+      "threads": []
+    },
+    {
+      "id": "personal",
+      "label": "Personal",
+      "color": "#f472b6",
+      "projects": ["github.com/me/side-project", "/home/me/projects/notes"],
+      "threads": []
+    }
+  ]
+}

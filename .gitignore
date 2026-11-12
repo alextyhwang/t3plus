@@ -1,0 +1,8 @@
+node_modules/
+dist/
+harness/out/
+scratch_*.py
+tmp-*.zip
+__pycache__/
+t3plus.local.json
+server/config.local.json

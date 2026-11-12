@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "updatedAt": "2026-11-11T22:30:00Z",
+  "botMarker": "[[t3plus:bot:v1]]",
+  "profiles": [
+    {
+      "id": "work",
+      "label": "Work",
+      "color": "#60a5fa",
+      "projects": [],
+      "threads": ["env1:a1", "env1:a2", "env1:w1", "env1:g1"]
+    },
+    {
+      "id": "personal",
+      "label": "Personal",
+      "color": "#f472b6",
+      "projects": [],
+      "threads": ["env2:t1", "env2:n1", "env2:i1", "env2:n2"],
+      "showBots": false
+    }
+  ]
+}
