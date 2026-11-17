@@ -1,4 +1,5 @@
-import { DITHER_CELL_CSS } from "./backdropRenderer.js";
+import { DITHER_CELL_CSS } from "./config.js";
+import { bayerMatrix } from "./ditherMath.js";
 
 // Dither-kit area fills for the widget charts and T3's own Usage chart. The
 // SVG keeps the smooth path for hover math and as the no-canvas fallback; this
@@ -7,16 +8,8 @@ import { DITHER_CELL_CSS } from "./backdropRenderer.js";
 // ordered Bayer "fade": dense just under the line, dissolving toward the
 // baseline over each area's own height.
 
-const BAYER_8 = [
-  [0, 48, 12, 60, 3, 51, 15, 63],
-  [32, 16, 44, 28, 35, 19, 47, 31],
-  [8, 56, 4, 52, 11, 59, 7, 55],
-  [40, 24, 36, 20, 43, 27, 39, 23],
-  [2, 50, 14, 62, 1, 49, 13, 61],
-  [34, 18, 46, 30, 33, 17, 45, 29],
-  [10, 58, 6, 54, 9, 57, 5, 53],
-  [42, 26, 38, 22, 41, 25, 37, 21],
-];
+// Indexed [col][row]: the chart's pattern is the transpose of the backdrop's.
+const BAYER_8 = bayerMatrix(8);
 
 /** Fill density at a depth through an area (0 = just under its line, 1 = baseline). */
 export function ditherDensity(depth) {
@@ -25,7 +18,7 @@ export function ditherDensity(depth) {
 }
 
 /** Whether the ordered-dither cell at (col, row) is lit at a density 0..1. */
-export const ditherOn = (col, row, density) => (BAYER_8[row & 7][col & 7] + 0.5) / 64 < density;
+export const ditherOn = (col, row, density) => (BAYER_8[col & 7][row & 7] + 0.5) / 64 < density;
 
 /** The area's top edge (0..1 from the top) at x (0..1), or null outside the series. */
 function edgeAt(points, x) {
@@ -84,6 +77,11 @@ export function createDitherCanvas(doc, series, { className = "t3plus-w-dither" 
   canvas.className = className;
   canvas.setAttribute("aria-hidden", "true");
   let key = "";
+  let painted = { dpr: 0, cellVar: "" };
+  // t3+ sets the cell size inline on <html> (gradient.js); reading it there
+  // skips the full style pass getComputedStyle would force.
+  const readCellVar = () =>
+    doc.documentElement.style.getPropertyValue("--t3plus-dither-cell") || win.getComputedStyle(doc.documentElement).getPropertyValue("--t3plus-dither-cell");
 
   function paint() {
     if (!canvas.isConnected || !win) return false;
@@ -91,7 +89,9 @@ export function createDitherCanvas(doc, series, { className = "t3plus-w-dither" 
     const height = canvas.clientHeight;
     if (!width || !height) return false;
     const dpr = win.devicePixelRatio || 1;
-    const raw = parseFloat(win.getComputedStyle(doc.documentElement).getPropertyValue("--t3plus-dither-cell"));
+    const cellVar = readCellVar();
+    painted = { dpr, cellVar };
+    const raw = parseFloat(cellVar);
     const cellCss = Number.isFinite(raw) && raw > 0 ? raw : DITHER_CELL_CSS.medium;
     const cell = Math.max(2, Math.round(cellCss * dpr)); // whole device px, same rule as the backdrop
     const next = [width, height, dpr, cell].join();
@@ -132,6 +132,15 @@ export function createDitherCanvas(doc, series, { className = "t3plus-w-dither" 
   return {
     canvas,
     paint,
+    /**
+     * Repaints only if the pixel ratio or cell size changed. Size changes come
+     * through the ResizeObserver, so the per-check call reads no layout.
+     */
+    refresh() {
+      if (!observer || !key || !canvas.isConnected) return paint();
+      if ((win.devicePixelRatio || 1) === painted.dpr && readCellVar() === painted.cellVar) return true;
+      return paint();
+    },
     /** New data for the same canvas (T3 re-rendered its chart). */
     setSeries(next) {
       series = next;

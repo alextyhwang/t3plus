@@ -1,32 +1,33 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import { buildManifest } from "../build.mjs";
 import { T3_SELECTORS } from "../src/config.js";
-import { BOT_FEED_ENDPOINT, CONFIG_ENDPOINTS, CONFIG_HOST_PERMISSIONS, DEFAULT_FEED_BASE, FETCH_ENDPOINTS, HOME_FEED_ENDPOINT, HOST_MATCHES, hostPermissionsFor } from "../src/hosts.js";
+// The shipped setup, not the test fixture (test/support/register.mjs).
+import { FEED_BASE, IMMICH, T3_ORIGIN, TASKS_BASE } from "../src/personal.js?shipped";
 
 const css = await readFile(new URL("../src/styles/content.css", import.meta.url), "utf8");
+const manifest = JSON.parse(await readFile(new URL("../manifest.json", import.meta.url), "utf8"));
 
-test("manifest is MV3, storage-only, and scoped to the listed T3 hosts", async () => {
-  const manifest = await buildManifest({ feedBase: DEFAULT_FEED_BASE });
-  const text = JSON.stringify(manifest);
+test("manifest is MV3, storage-only, runs only on T3 and grants every origin t3+ requests", () => {
   assert.equal(manifest.manifest_version, 3);
   assert.deepEqual(manifest.permissions, ["storage"]);
-  // The only host permissions are the exact t3plus.json and t3plus-bots.json URLs, read by the background worker.
-  assert.deepEqual(manifest.host_permissions, [...CONFIG_HOST_PERMISSIONS]);
-  assert.deepEqual([...CONFIG_HOST_PERMISSIONS], [...CONFIG_ENDPOINTS, BOT_FEED_ENDPOINT, HOME_FEED_ENDPOINT]);
-  assert.deepEqual([...FETCH_ENDPOINTS], [...CONFIG_HOST_PERMISSIONS]);
-  for (const url of FETCH_ENDPOINTS) assert.match(url, /^https:\/\/[a-z0-9.-]+\/[^*]+\.json$/, "exact file URL, no wildcard");
+  assert.deepEqual(manifest.content_scripts[0].matches, [`${T3_ORIGIN}/*`]);
+  assert.deepEqual(manifest.web_accessible_resources[0].matches, [`${T3_ORIGIN}/*`]);
   assert.equal(manifest.background.service_worker, "background.js");
-  assert.ok(!text.includes("<all_urls>"));
-  const own = await buildManifest({ feedBase: "https://files.example.com/t3/" });
-  assert.deepEqual(own.host_permissions, hostPermissionsFor("https://files.example.com/t3/"));
-  assert.equal(own.host_permissions[0], "https://files.example.com/t3/t3plus.json", "a configured feed folder becomes exact file permissions");
-  assert.ok(!text.includes("__HOST_MATCHES__"));
-  assert.ok(!text.includes("__CONFIG_HOST_PERMISSIONS__"));
-  assert.deepEqual(manifest.content_scripts[0].matches, [...HOST_MATCHES]);
-  assert.deepEqual(manifest.web_accessible_resources[0].matches, [...HOST_MATCHES]);
-  for (const match of HOST_MATCHES) assert.match(match, /^https:\/\/[a-z0-9.-]+\/\*$/);
+  const granted = manifest.host_permissions.map((permission) => {
+    assert.match(permission, /^https:\/\/[a-z0-9.-]+\/\*$/, "whole origins only, never <all_urls>");
+    return new URL(permission).origin;
+  });
+  for (const url of [FEED_BASE, TASKS_BASE, IMMICH.feedEndpoint, IMMICH.imageEndpoint].filter(Boolean)) {
+    assert.ok(granted.includes(new URL(url).origin), `no host permission for ${url}`);
+  }
+});
+
+test("the manifest pins the extension key, so every build has the same extension ID", () => {
+  const der = Buffer.from(manifest.key, "base64");
+  const id = [...createHash("sha256").update(der).digest("hex").slice(0, 32)].map((h) => String.fromCharCode(97 + parseInt(h, 16))).join("");
+  assert.equal(id, "nclfnobogafdmfohgibkgeefijieoeoc");
 });
 
 test("content.css uses the same hooks that config.js names", () => {
@@ -94,8 +95,11 @@ test("profile filtering hides rows with an !important display rule tied to t3+'s
   assert.match(css, /\[data-t3plus-filtered\]\[hidden\]\s*\{\s*display:\s*none !important;/);
 });
 
-test("the hero glow crossfade scales match HERO_SPREAD", async () => {
-  const { HERO_SPREAD } = await import("../src/backdropRenderer.js");
-  assert.ok(css.includes(`transform: scale(${HERO_SPREAD});`), "wide layer's resting size for the normal glow");
-  assert.ok(css.includes(`transform: scale(${(1 / HERO_SPREAD).toFixed(2)});`), "normal glow's size for the wide layer");
+test("the hero glow swaps sprites on one layer without a navigation animation", () => {
+  const wide = css.match(/html\[data-t3plus-glow-wide\][^{]+::before\s*\{([^}]+)\}/)?.[1];
+  assert.ok(wide, "wide glow uses the existing backdrop layer");
+  assert.match(wide, /background-image: var\(--t3plus-wide-image\)/);
+  assert.match(wide, /background-size: var\(--t3plus-wide-w\) var\(--t3plus-wide-h\)/);
+  assert.doesNotMatch(css, /data-t3plus-glow-ready|@property --t3plus-glow/);
+  assert.doesNotMatch(wide, /transition|transform|opacity/);
 });

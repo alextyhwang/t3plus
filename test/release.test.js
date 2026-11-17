@@ -1,16 +1,14 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { DEFAULT_FEED_BASE } from "../src/hosts.js";
 import { publishRelease, releaseInfo, releaseNotes } from "../tools/release.mjs";
 
 async function fixture() {
   const cwd = await mkdtemp(join(tmpdir(), "t3plus-release-test-"));
   await writeFile(join(cwd, "package.json"), '{"version":"1.2.3"}');
-  await writeFile(join(cwd, "manifest.base.json"), '{"version":"1.2.3"}');
+  await writeFile(join(cwd, "manifest.json"), '{"version":"1.2.3"}');
   await writeFile(join(cwd, "CHANGELOG.md"), "# Changes\r\n\r\n## Unreleased\r\n\r\n## 1.2.3 (2026-01-01)\r\n- Fixed it.\r\n\r\n## 1.2.2\r\nOld\r\n");
   return { cwd, clean: () => rm(cwd, { recursive: true, force: true }) };
 }
@@ -20,22 +18,12 @@ test("release metadata validates matching versions and uses only that changelog 
   try {
     const info = await releaseInfo(f.cwd);
     assert.deepEqual(info, { version: "1.2.3", tag: "v1.2.3", changes: "- Fixed it." });
-    assert.match(releaseNotes(info, true), /no personal feed configuration/);
-    assert.match(releaseNotes(info, false), /personal build/);
-    await writeFile(join(f.cwd, "manifest.base.json"), '{"version":"1.2.4"}');
+    assert.match(releaseNotes(info), /^- Fixed it\./);
+    await writeFile(join(f.cwd, "manifest.json"), '{"version":"1.2.4"}');
     await assert.rejects(releaseInfo(f.cwd), /versions must match/);
     await writeFile(join(f.cwd, "package.json"), '{"version":"1.2.4"}');
     await assert.rejects(releaseInfo(f.cwd), /needs a section/);
   } finally { await f.clean(); }
-});
-
-test("public builds ignore a configured personal feed environment", () => {
-  const result = spawnSync(process.execPath, ["--input-type=module", "-e",
-    "const { resolveFeedBase } = await import('./build.mjs'); console.log(await resolveFeedBase());", "--", "--public"], {
-    cwd: new URL("..", import.meta.url), encoding: "utf8", env: { ...process.env, T3PLUS_FEED_BASE: "https://personal.example.test/feeds/" },
-  });
-  assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout.trim(), DEFAULT_FEED_BASE);
 });
 
 test("release upload publishes a draft only after the ZIP arrives; a published version is left intact", async () => {
@@ -47,9 +35,8 @@ test("release upload publishes a draft only after the ZIP arrives; a published v
     let published = false;
     let builds = 0;
     const options = { cwd: f.cwd, repository: "example/extension", token: "fixture-token", target: "a".repeat(40), log() {},
-      pack: async ({ publicBuild }) => {
+      pack: async () => {
         builds++;
-        assert.equal(publicBuild, true);
         return { name: "extension.zip", path, notes: "Release notes" };
       },
       fetchImpl: async (url, options) => {
@@ -57,7 +44,7 @@ test("release upload publishes a draft only after the ZIP arrives; a published v
         if (options.method === "PATCH") published = true;
         const missing = calls.length === 1;
         return { status: missing ? 404 : 200, ok: !missing, json: async () => ({ id: 5, draft: !published, html_url: "https://example.test/release" }) };
-      }, publicBuild: true };
+      } };
     await publishRelease(options);
     assert.deepEqual(calls.map((call) => call.method), ["GET", "POST", "POST", "PATCH"]);
     const draft = JSON.parse(calls[1].body);

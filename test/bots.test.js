@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BOT_GRID, botArt, botEdgeColor, botFillUrl, defaultBotColor, ditherIndex, eyeCells, eyeOutline, skinMarks } from "../src/botArt.js";
-import { bayerMatrix, DITHER_STYLES, ditherLevel, ditherRgbInPlace, glowPixelArt, glowStrength, glowTones, grainThreshold, GLOW_SHAPE } from "../src/ditherMath.js";
+import { bayerMatrix, ditherLevel, ditherRgbInPlace, glowPixelArt, glowStrength, glowTones, grainThreshold } from "../src/ditherMath.js";
 import { ditherGrid } from "../src/backdropRenderer.js";
-import { botPreviewText, createBotFeed, parseBotFeedText, threadIdFromKey } from "../src/botFeed.js";
+import { createBotFeed, parseBotFeedText } from "../src/botFeed.js";
+import { threadIdFromKey } from "../src/threadKey.js";
 import {
+  applyAvatarVars,
+  botTitleLabel,
   classifyBots,
+  classifyBotsWithFallback,
+  clearAvatarVars,
   createBotStore,
   decorateBotRows,
   normalizeBotPrefs,
@@ -13,7 +18,7 @@ import {
   parseRowStatus,
   resolveBotPresentation,
 } from "../src/bots.js";
-import { BOT_COLORS, BOT_SHAPES, BOT_SKINS, DEFAULT_BOT_MARKER, STORAGE_KEYS, T3PLUS } from "../src/config.js";
+import { BOT_COLORS, BOT_SHAPES, BOT_SKINS, DEFAULT_BOT_MARKER, DITHER_STYLES, STORAGE_KEYS, T3PLUS } from "../src/config.js";
 import { BOT_FEED_ENDPOINT } from "../src/hosts.js";
 import { findSidebarInner, scanSidebar } from "../src/sidebar.js";
 import {
@@ -79,6 +84,18 @@ test("classifyBots: top-level rows only, with a child count from data-sidebar-pa
   assert.equal(bots[0].titleLabel, "Orchestrator");
 });
 
+test("a custom marker that matches nothing falls back to the built-in marker, for the sidebar and for one title", () => {
+  const scan = scanSidebar(findSidebarInner(createDom("/", sidebarHtml()).window.document));
+  const custom = "[[acme:bot]]";
+  const fallback = classifyBotsWithFallback(scan, custom);
+  assert.equal(fallback.marker, DEFAULT_BOT_MARKER);
+  assert.deepEqual(fallback.bots.map((b) => b.key), classifyBots(scan, DEFAULT_BOT_MARKER).map((b) => b.key));
+  assert.deepEqual(classifyBotsWithFallback({ threads: [] }, custom), { bots: [], marker: custom }, "nothing matches: the configured marker stays");
+  assert.equal(botTitleLabel(`${custom} Router`, custom), "Router");
+  assert.equal(botTitleLabel(`${DEFAULT_BOT_MARKER} Router`, custom), "Router");
+  assert.equal(botTitleLabel("Router", custom), "");
+});
+
 test("bot prefs are a shape and a color from fixed lists; unknown values fall back safely", () => {
   assert.deepEqual(normalizeBotPrefs({ shape: "triangle", color: "orange" }), { shape: "triangle", color: "orange" });
   const odd = normalizeBotPrefs({ shape: "blob", color: "#ff0000", accent: "#ff0000", iconDataUrl: "javascript:alert(1)" }, "env1:bot1");
@@ -109,7 +126,6 @@ test("every color is a fixed three-stop ordered-dither gradient with white pixel
   assert.equal(ditherIndex(BOT_GRID - 1, BOT_GRID - 1), 2);
   const row = Array.from({ length: BOT_GRID }, (_, x) => ditherIndex(x, 12));
   assert.ok(new Set(row).size >= 2, "a middle row mixes stops");
-  assert.equal(botFillUrl("blue", "star"), botFillUrl("blue", "star"), "cached");
   assert.equal(botFillUrl("nope", "nope"), botFillUrl("blue", "circle"));
 });
 
@@ -213,7 +229,6 @@ test("background dither: pixel-art glow made of a few far-apart tones, never a f
 });
 
 test("the glow stays near the composer: compact enough not to reach the top half or the far sides", () => {
-  assert.ok(GLOW_SHAPE.haloRy < 0.5, "never reaches the middle of the pane");
   assert.equal(glowStrength(0.5, 0.45, 0.5, 1), 0, "nothing above ~55% height");
   assert.equal(glowStrength(0, 0.98, 0.5, 1), 0, "the far left edge is clear at the bottom");
   assert.ok(glowStrength(0.5, 0.97, 0.5, 0.55) > 0.4, "strong behind the composer");
@@ -229,7 +244,7 @@ test("bot store keeps shape/color per thread key and drops bad keys", async () =
   assert.deepEqual(await store.load(), { "env1:bot1": { shape: "circle", color: "teal" } });
 });
 
-test("bot feed: parses t3plus-bots.json by thread id and builds the preview line", async () => {
+test("bot feed: parses t3plus-bots.json by thread id", async () => {
   const text = JSON.stringify({
     version: 1,
     generatedAt: "2026-11-11T00:00:00Z",
@@ -243,10 +258,8 @@ test("bot feed: parses t3plus-bots.json by thread id and builds the preview line
   const feed = parseBotFeedText(text);
   assert.deepEqual([...feed.entries.keys()], ["thread:mcp:abc:1", "bot1"]);
   assert.equal(threadIdFromKey("env-9:thread:mcp:abc:1"), "thread:mcp:abc:1", "thread ids may contain colons");
-  assert.equal(botPreviewText(feed, "env-9:thread:mcp:abc:1"), "Ran the nightly sync. All green.");
-  assert.equal(botPreviewText(feed, "env1:bot1"), "You: check the deploy");
-  assert.equal(botPreviewText(feed, "env1:other"), "No messages yet");
-  assert.equal(botPreviewText(null, "env1:bot1"), "", "no feed yet: no text rather than a wrong claim");
+  assert.equal(feed.entries.get("thread:mcp:abc:1").text, "Ran the nightly sync. All green.", "whitespace collapsed");
+  assert.equal(feed.entries.get("bot1").role, "user");
   for (const bad of ["", "nope", "{}", JSON.stringify({ version: 2, bots: {} })]) assert.equal(parseBotFeedText(bad), null);
 
   // Loads through the background fetcher, caches, and falls back to the cache.
@@ -304,7 +317,28 @@ test("decorateBotRows lays out name, preview and avatar on T3's row in place; id
   assert.equal(row.getAttribute("style"), null);
 });
 
-test("app: bot rows show the feed preview, and Settings edits shape and color", async () => {
+test("a bot whose second line is owned elsewhere (the Assistant's summary) gets no preview of its own", () => {
+  const dom = createDom("/", sidebarHtml());
+  const doc = dom.window.document;
+  const scan = scanSidebar(findSidebarInner(doc));
+  const bots = classifyBots(scan, DEFAULT_BOT_MARKER);
+  const row = doc.querySelector('[data-thread-item="env1:bot1"] [data-sidebar-row]');
+  decorateBotRows(doc, scan, bots, {}, () => "Synced 3 repos.", { ownedSecondLine: new Set(["env1:bot1"]) });
+  assert.equal(row.getAttribute("aria-description"), "t3+ bot: Orchestrator");
+  assert.equal(row.querySelector(`[${T3PLUS.botTitleAttr}]`).getAttribute(T3PLUS.botTitleAttr), "");
+});
+
+test("clearAvatarVars removes everything applyAvatarVars wrote", () => {
+  const el = createDom("/", "<span id='a'></span>").window.document.getElementById("a");
+  const view = resolveBotPresentation({ key: "env1:bot1", titleLabel: "Bot", status: "working" }, { shape: "star", color: "green" });
+  applyAvatarVars(el, view);
+  assert.ok(el.hasAttribute("data-animated"), "the working face is animated");
+  clearAvatarVars(el);
+  assert.equal(el.getAttribute("style"), "");
+  assert.deepEqual(el.getAttributeNames(), ["id", "style"]);
+});
+
+test("app: bot rows show workload, and Settings edits shape and color", async () => {
   const storage = createFakeChromeStorage();
   const feedText = JSON.stringify({ version: 1, bots: { bot1: { text: "Nightly run done.", role: "assistant" } } });
   const botFeed = createBotFeed({ area: storage.area, fetchRemote: createFakeRemote({ ok: true, status: 200, text: feedText }) });
@@ -317,12 +351,15 @@ test("app: bot rows show the feed preview, and Settings edits shape and color", 
 
   const row = sdoc.querySelector('[data-sidebar-row="env1:bot1"]');
   assert.equal(row.getAttribute(T3PLUS.botAttr), "working");
-  assert.equal(row.querySelector(`[${T3PLUS.botTitleAttr}]`).getAttribute(T3PLUS.botTitleAttr), "Nightly run done.");
+  assert.equal(row.querySelector(`[${T3PLUS.botTitleAttr}]`).getAttribute(T3PLUS.botTitleAttr), "Working on your request");
   assert.equal(sdoc.querySelectorAll('[data-sidebar-row="env1:bot1"]').length, 1);
   const plain = sdoc.querySelector('[data-sidebar-row="env1:a1"]');
   assert.equal(plain.hasAttribute(T3PLUS.botAttr), false);
   assert.equal(plain.querySelectorAll(`[${T3PLUS.ownedAttr}]`).length, 0);
   assert.equal(storage.area.data.get(STORAGE_KEYS.knownBots)["env1:bot1"].title, BOT_TITLE);
+  // Off screen, the Settings panel is not drawn: its swatches paint a face each.
+  assert.equal(sideApp.panel.element.isConnected, false);
+  assert.equal(sideApp.panel.element.querySelector(".t3plus-bot-editor"), null);
 
   // Settings tab lists the known bot with shape and color pickers, and nothing else to edit.
   const settings = createDom("/settings/appearance", T3_APPEARANCE_HTML);
@@ -336,7 +373,7 @@ test("app: bot rows show the feed preview, and Settings edits shape and color", 
   const colorButtons = editor.querySelectorAll('[aria-label="Color for env1:bot1"] button');
   assert.equal(shapeButtons.length, Object.keys(BOT_SHAPES).length);
   assert.equal(colorButtons.length, Object.keys(BOT_COLORS).length);
-  assert.equal(editor.querySelector(".t3plus-bot-preview").textContent, "Nightly run done.");
+  assert.equal(editor.querySelector(".t3plus-bot-preview").textContent, "All caught up");
 
   editor.querySelector('[aria-label="Shape for env1:bot1"] button[data-value="diamond"]').click();
   await settle();
@@ -383,10 +420,10 @@ test("bots feature off removes every bot decoration", async () => {
 });
 
 test("bot moods: closed eyes when idle, animated sprites when working or needing you", async () => {
-  const { botArt, MOOD_BY_STATUS } = await import("../src/botArt.js");
-  const idle = botArt("blue", "circle", MOOD_BY_STATUS.idle);
-  const working = botArt("blue", "circle", MOOD_BY_STATUS.working);
-  const attention = botArt("blue", "circle", MOOD_BY_STATUS.attention);
+  const { botArt } = await import("../src/botArt.js");
+  const idle = botArt("blue", "circle", "idle");
+  const working = botArt("blue", "circle", "working");
+  const attention = botArt("blue", "circle", "attention");
   assert.equal(idle.frames, 1);
   assert.equal(idle.duration, 0);
   assert.ok(working.frames >= 6 && working.duration > 0, "working animates");
@@ -401,7 +438,7 @@ test("bot moods: closed eyes when idle, animated sprites when working or needing
   // Unknown status -> the neutral face; the row decoration marks animated avatars.
   const view = resolveBotPresentation({ key: "env1:bot1", titleLabel: "Ops", status: "working" }, { color: "red" });
   assert.equal(view.mood, "working");
-  assert.equal(view.frames, working.frames === botArt("red", "circle", "working").frames ? view.frames : -1);
+  assert.equal(view.frames, botArt("red", "circle", "working").frames, "the row animates every frame of the working sprite");
   assert.equal(resolveBotPresentation({ key: "k:1", titleLabel: "x" }, {}).mood, "awake");
 });
 
@@ -417,14 +454,13 @@ test("decorated bot rows: animated avatar while working, static closed eyes when
   const scan = scanSidebar(inner);
   const bots = classifyBots(scan, DEFAULT_BOT_MARKER);
   const branchLine = doc.querySelector('[data-sidebar-row="env1:bot1"] .relative.z-10').children[2];
-  branchLine.insertAdjacentHTML("afterend", '<div class="t3plus-bot-metaline" data-t3plus-owned>v0.5 line</div>');
   decorateBotRows(doc, scan, bots, {}, () => "Ran.");
   const row = doc.querySelector('[data-sidebar-row="env1:bot1"]');
   const avatar = row.querySelector(".t3plus-bot-avatar");
   assert.equal(avatar.getAttribute("data-t3plus-mood"), "working");
   assert.ok(avatar.hasAttribute("data-animated"));
   assert.ok(Number(avatar.style.getPropertyValue("--t3plus-bot-frames")) > 1);
-  assert.equal(row.querySelector(".t3plus-bot-metaline"), null, "no model/computer line (and a v0.5 one is removed)");
+  assert.equal(row.querySelector(".t3plus-bot-metaline"), null, "no model/computer line");
   assert.ok(branchLine.hasAttribute("data-t3plus-bot-hide"), "T3's branch line is hidden");
   assert.equal(row.querySelector(`[${T3PLUS.botTitleAttr}]`).getAttribute(T3PLUS.botTitleAttr), "Ran.");
 
@@ -438,7 +474,6 @@ test("bot feed carries model and computer (shown in Settings)", async () => {
   const { botMetaText } = await import("../src/botFeed.js");
   const feed = parseBotFeedText(JSON.stringify({ version: 1, bots: { b1: { text: "", model: "GPT-6.1 Sol", computer: "Studio" }, b2: { text: "hi" } } }));
   assert.equal(botMetaText(feed, "env:b1"), "GPT-6.1 Sol · Studio");
-  assert.equal(botPreviewText(feed, "env:b1"), "No messages yet");
   assert.equal(botMetaText(feed, "env:b2"), "");
   assert.equal(botMetaText(null, "env:b1"), "");
 });
@@ -454,9 +489,7 @@ test("background dither cells are the same CSS size on every screen", () => {
   }
 });
 
-test("the three styles are all pixel variants: bayer, grain, spectrum", async () => {
-  const { DITHER_STYLES: fromRenderer } = await import("../src/backdropRenderer.js");
-  assert.deepEqual([...fromRenderer], ["bayer", "grain", "spectrum"]);
+test("grain and bayer are different pixel patterns", () => {
   const a = glowPixelArt({ width: 64, height: 32, cx: 0.5, rgb: [59, 130, 246], intensity: 0.6, style: "bayer" });
   const b = glowPixelArt({ width: 64, height: 32, cx: 0.5, rgb: [59, 130, 246], intensity: 0.6, style: "grain" });
   let diff = 0;

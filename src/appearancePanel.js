@@ -1,7 +1,19 @@
 import { botClipPath, botEdgeColor, botFillUrl, botShapeHasOwnColors } from "./botArt.js";
 import { applyAvatarVars, resolveBotPresentation } from "./bots.js";
-import { APPEARANCE_ROUTE, BOT_COLORS, BOT_SHAPES, IMAGE_LIMITS, T3_SELECTORS, T3PLUS } from "./config.js";
+import {
+  APPEARANCE_ROUTE,
+  BOT_COLORS,
+  BOT_SHAPES,
+  DITHER_SIZE_OPTIONS,
+  DITHER_STYLE_OPTIONS,
+  GRADIENT_MODE_OPTIONS,
+  IMAGE_LIMITS,
+  T3_SELECTORS,
+  T3PLUS,
+  WALLPAPERS,
+} from "./config.js";
 import { createBuilder, setText, uniqueId as id } from "./dom.js";
+import { CONFIG_SOURCES } from "./remoteConfig.js";
 
 /**
  * Finds where the t3+ section goes on Settings -> Appearance: the container of
@@ -18,19 +30,10 @@ export function findAppearanceContainer(doc, pathname) {
   return last?.parentElement ?? null;
 }
 
-/** Inserts or moves the panel to the end of the container. Returns true when the DOM changed. */
+/** Inserts or moves the panel to the end of the container. */
 export function ensurePanelMounted(container, panel) {
-  if (panel.parentElement === container && container.lastElementChild === panel) return false;
-  container.appendChild(panel);
-  return true;
+  if (panel.parentElement !== container || container.lastElementChild !== panel) container.appendChild(panel);
 }
-
-const SOURCE_TEXT = {
-  remote: "Loaded from the server file",
-  cache: "Using a cached copy of the server file",
-  local: "Using the local override",
-  none: "No profiles loaded",
-};
 
 /**
  * Builds the t3+ Appearance section once; `update(state)` syncs values in place
@@ -43,7 +46,7 @@ const SOURCE_TEXT = {
  *   bots: [{ key, title, titleLabel, prefs: { shape, color }, view, preview }], botMessage,
  * }
  */
-export function createAppearancePanel(doc, actions) {
+export function createAppearancePanel(doc, actions, { assetUrl = (path) => path } = {}) {
   const h = createBuilder(doc);
   const row = ({ title, description, control, extra }) => {
     const titleId = id("row-title");
@@ -93,13 +96,12 @@ export function createAppearancePanel(doc, actions) {
     };
   };
 
-  // ---------- Background + glass ----------
   const backgroundToggle = switchButton("Background", (on) => actions.setEnabled(on));
 
   const modeName = id("mode");
   const modeInputs = {};
   const modeGroup = h("div", { class: "t3plus-segmented", role: "radiogroup", "aria-label": "Background style" },
-    [["half-circle", "Glow"], ["image", "Image"]].map(([value, label]) => {
+    GRADIENT_MODE_OPTIONS.map(({ value, label }) => {
       const input = h("input", { type: "radio", name: modeName, value, class: "t3plus-sr-only" });
       input.addEventListener("change", () => input.checked && actions.setMode(value));
       modeInputs[value] = input;
@@ -115,14 +117,31 @@ export function createAppearancePanel(doc, actions) {
   });
   const thumb = h("span", { class: "t3plus-thumb", "aria-hidden": "true" });
   const uploadButton = button("Upload…", () => fileInput.click());
-  const sampleButton = button("Sample", () => actions.useSample());
   const removeButton = button("Remove upload", () => actions.removeImage(), "t3plus-button-ghost");
+  const wallpaperName = id("wallpaper");
+  const wallpaperInputs = new Map();
+  const wallpaperOption = (value, label, src) => {
+    const input = h("input", { type: "radio", name: wallpaperName, value, class: "t3plus-sr-only", "aria-label": label });
+    input.addEventListener("change", () => input.checked && actions.setImageSource(value));
+    wallpaperInputs.set(value, input);
+    return h("label", { class: "t3plus-wallpaper" }, [
+      input,
+      h("img", { src, alt: "", width: "160", height: "90", class: "t3plus-wallpaper-art" }),
+      h("span", { class: "t3plus-wallpaper-label", text: label }),
+    ]);
+  };
+  const uploadOption = wallpaperOption("upload", "Your upload");
+  const uploadArt = uploadOption.querySelector("img");
+  const wallpaperPicker = h("div", { class: "t3plus-wallpapers", role: "radiogroup", "aria-label": "Wallpaper" }, [
+    ...WALLPAPERS.map(({ id, label, path }) => wallpaperOption(id, label, assetUrl(path))),
+    uploadOption,
+  ]);
   const imageCaption = h("p", { class: "t3plus-row-desc" });
   const imageRow = row({
-    title: "Image",
-    description: "Stored only in this browser. Large images are resized and saved as WebP.",
-    control: [thumb, uploadButton, sampleButton, removeButton, fileInput],
-    extra: imageCaption,
+    title: "Wallpaper",
+    description: "Choose a background or upload your own. Uploads stay in this browser.",
+    control: [thumb, uploadButton, removeButton, fileInput],
+    extra: h("div", {}, [wallpaperPicker, imageCaption]),
   });
 
   const colorInput = h("input", { type: "color", class: "t3plus-color", "aria-label": "Accent color" });
@@ -134,7 +153,7 @@ export function createAppearancePanel(doc, actions) {
   const ditherSizeName = id("dither-size");
   const ditherSizeInputs = {};
   const ditherSizeGroup = h("div", { class: "t3plus-segmented", role: "radiogroup", "aria-label": "Dither pixel size" },
-    [["fine", "Fine"], ["medium", "Medium"], ["large", "Large"]].map(([value, label]) => {
+    DITHER_SIZE_OPTIONS.map(({ value, label }) => {
       const input = h("input", { type: "radio", name: ditherSizeName, value, class: "t3plus-sr-only" });
       input.addEventListener("change", () => input.checked && actions.setDitherSize(value));
       ditherSizeInputs[value] = input;
@@ -144,7 +163,7 @@ export function createAppearancePanel(doc, actions) {
   const lookName = id("look");
   const lookInputs = {};
   const lookGroup = h("div", { class: "t3plus-segmented", role: "radiogroup", "aria-label": "Look" },
-    [["bayer", "Bayer"], ["grain", "Grain"], ["spectrum", "Spectrum"], ["smooth", "Smooth"]].map(([value, label]) => {
+    [...DITHER_STYLE_OPTIONS, { value: "smooth", label: "Smooth" }].map(({ value, label }) => {
       const input = h("input", { type: "radio", name: lookName, value, class: "t3plus-sr-only" });
       input.addEventListener("change", () => input.checked && actions.setLook(value));
       lookInputs[value] = input;
@@ -153,7 +172,7 @@ export function createAppearancePanel(doc, actions) {
   );
   const lookRow = row({
     title: "Look",
-    description: "Pixel art like the bot avatars: Bayer crosshatch, scattered Grain, or hue-drifting Spectrum. Smooth is a plain gradient.",
+    description: "Pixel art like the bot avatars: Bayer crosshatch, scattered Grain, or hue-drifting Spectrum. Smooth keeps the original glow or image.",
     control: lookGroup,
   });
   const ditherSizeRow = row({ title: "Pixel size", description: "Size of each dither dot, the same on every screen.", control: ditherSizeGroup });
@@ -217,8 +236,8 @@ export function createAppearancePanel(doc, actions) {
   ]);
 
   const SAMPLE_PREVIEW_BOTS = [
-    { key: "sample:orchestrator", titleLabel: "Orchestrator", preview: "Spawned 3 sub-threads for tonight's sync.", prefs: { shape: "circle", color: "blue" } },
-    { key: "sample:inbox", titleLabel: "Inbox triage", preview: "Archived 14 threads older than a week.", prefs: { shape: "hexagon", color: "purple" } },
+    { key: "sample:orchestrator", titleLabel: "Orchestrator", preview: "2 threads running · 4 open", prefs: { shape: "circle", color: "blue" } },
+    { key: "sample:inbox", titleLabel: "Inbox triage", preview: "All caught up", prefs: { shape: "hexagon", color: "purple" } },
   ];
   let previewBotsSignature = "";
   function updatePreviewBots(bots) {
@@ -240,7 +259,7 @@ export function createAppearancePanel(doc, actions) {
               h("span", { class: "t3plus-preview-bot-name", text: view.label }),
               h("span", { class: "t3plus-preview-time", text: index === 0 ? "Working" : "2h" }),
             ]),
-            h("div", { class: "t3plus-preview-bot-message", text: bot.preview || "No messages yet" }),
+            h("div", { class: "t3plus-preview-bot-message", text: bot.preview || "Status unavailable" }),
           ]),
         ]);
       }),
@@ -264,7 +283,6 @@ export function createAppearancePanel(doc, actions) {
     status,
   ]);
 
-  // ---------- Sidebar profiles ----------
   const profilesToggle = switchButton("Sidebar profile tabs", (on) => actions.setSidebarFeature("profiles", on));
   const botsToggle = switchButton("Bot rows", (on) => actions.setSidebarFeature("bots", on));
   const homeToggle = switchButton("Usage widgets", (on) => actions.setHomeWidgets(on));
@@ -303,7 +321,7 @@ export function createAppearancePanel(doc, actions) {
   const configStatus = h("p", { class: "t3plus-status", role: "status", "aria-live": "polite" });
   const featuresCard = h("div", { class: "t3plus-card" }, [
     row({ title: "Profile tabs", description: "All plus your profiles above the thread list.", control: profilesToggle }),
-    row({ title: "Bot rows", description: "Threads marked as bots get a face, their name and latest message.", control: botsToggle }),
+    row({ title: "Bot rows", description: "Threads marked as bots show a face, their workload and next scheduled update.", control: botsToggle }),
     row({ title: "Screenshot mode", description: "Swap thread titles, projects, branches, profiles and message text for believable stand-ins, to share the UI without personal details. Widgets stay real. Nothing in T3 changes. Shortcut: Alt+Shift+D.", control: demoToggle }),
     row({ title: "Title first", description: "Thread rows show the title on top, then project and branch on one line.", control: titleFirstToggle }),
     row({ title: "Compact sidebar header", description: "Hide the T3 Code logo row and put the sidebar button before the breadcrumbs.", control: compactToggle }),
@@ -327,7 +345,6 @@ export function createAppearancePanel(doc, actions) {
     ]),
   ]);
 
-  // ---------- Bots ----------
   const botsList = h("div", { class: "t3plus-bots" });
   const botsEmpty = h("p", { class: "t3plus-row-desc t3plus-bots-empty" });
   const botStatus = h("p", { class: "t3plus-status", role: "status", "aria-live": "polite" });
@@ -446,13 +463,20 @@ export function createAppearancePanel(doc, actions) {
 
     const usingUpload = g.imageSource === "upload" && image;
     thumb.style.backgroundImage = imageUrl ? `url("${imageUrl.replace(/"/g, '\\"')}")` : "";
-    sampleButton.setAttribute("aria-pressed", String(!usingUpload));
+    const selected = usingUpload ? "upload" : WALLPAPERS.some(({ id }) => id === g.imageSource) ? g.imageSource : "sample";
+    for (const [value, input] of wallpaperInputs) input.checked = value === selected;
+    uploadOption.hidden = !image;
+    if (image) {
+      if (uploadArt.getAttribute("src") !== image.dataUrl) uploadArt.setAttribute("src", image.dataUrl);
+    } else uploadArt.removeAttribute("src");
+    thumb.hidden = !usingUpload;
     removeButton.disabled = !image;
+    const wallpaper = WALLPAPERS.find(({ id }) => id === selected);
     setText(imageCaption, usingUpload
       ? `Using ${image.name} (${image.width}×${image.height}).`
       : image
-        ? `Using the packaged sample. Your upload ${image.name} is still stored.`
-        : "Using the packaged sample image.");
+        ? `Using ${wallpaper.label}. Your upload ${image.name} is still stored.`
+        : `Using ${wallpaper.label}.`);
 
     themeButton.setAttribute("aria-pressed", String(g.accent === "theme"));
     // A color input cannot show "theme"; seed it with a neutral blue to pick from.
@@ -472,7 +496,6 @@ export function createAppearancePanel(doc, actions) {
     preview.dataset.glass = String(settings.glass.enabled);
     setText(status, message);
 
-    // Sidebar
     profilesToggle.setAttribute("aria-checked", String(settings.sidebar.profiles));
     botsToggle.setAttribute("aria-checked", String(settings.sidebar.bots));
     homeToggle.setAttribute("aria-checked", String(settings.home.widgets));
@@ -484,7 +507,7 @@ export function createAppearancePanel(doc, actions) {
       for (const [value, input] of Object.entries(sourceInputs)) input.checked = config.local.use === value;
       const when = config.fetchedAt ? ` (${new Date(config.fetchedAt).toLocaleString()})` : "";
       const count = config.profiles.length;
-      setText(sourceSummary, `${SOURCE_TEXT[config.source]}${when}: ${count} profile${count === 1 ? "" : "s"}. Server file: ${config.endpoint}`);
+      setText(sourceSummary, `${CONFIG_SOURCES[config.source]?.summary}${when}: ${count} profile${count === 1 ? "" : "s"}. Server file: ${config.endpoint}`);
       setText(sourceDiagnostic, config.diagnostic ?? "");
       sourceDiagnostic.hidden = !config.diagnostic;
       const errorsKey = config.errors.join("\n");
@@ -501,7 +524,6 @@ export function createAppearancePanel(doc, actions) {
     }
     setText(configStatus, state.configMessage);
 
-    // Bots
     const bots = state.bots ?? [];
     const marker = state.botMarker;
     setText(botsEmpty, bots.length

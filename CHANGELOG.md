@@ -4,6 +4,71 @@ Short history of t3+ releases. Details live in README.md; plans in ROADMAP.md.
 
 ## Unreleased
 
+## 0.19.0 (2026-11-17)
+
+**Faster.** Much less work in your T3 tab. Measured with the new
+`npm run perf` session against 0.18.2, both built with the same feed folder
+(main-thread time t3+ adds to the page, medians of 3 runs):
+
+| phase | 0.18.2 | 0.19.0 | change |
+|---|---|---|---|
+| page load | 185 ms | 133 ms | -28% |
+| 12 s idle | 103 ms | 14 ms | -86% |
+| 12 s of a reply streaming | 101 ms | 17 ms | -83% |
+| 4 route changes | 41 ms | 9 ms | -78% |
+| new-thread page (widgets) | 429 ms | 189 ms | -56% |
+| reload | 147 ms | 99 ms | -33% |
+
+Style recalculations in 12 idle seconds fell from 728 to 8, and t3+ runs no script at
+all in a hidden tab (4.5 ms per 12 s before).
+
+- Working and needs-you bot faces play as animated PNGs, which Chrome runs off the
+  main thread. The old keyframe animation recalculated style 60 times a second for as
+  long as a bot was busy.
+- The glow renders once per page load instead of twice, and its sprite is drawn on
+  the CPU.
+- Hidden tabs run no DOM checks; one check runs when the tab shows again.
+- Unchanged feed polls no longer rewrite their caches, and Chrome Sync and the
+  page-storage copy are written only when a value changed.
+- The Settings panel is drawn only while it is on screen, bot faces share one canvas,
+  and the pixel charts repaint only when their pixel size changes.
+
+**Rewritten setup.** The source was restructured with no visible change, around one
+setup file:
+
+- `src/personal.js` holds every host and id, and `src/hosts.js` derives each URL from
+  it. It ships empty, so the release ZIP fetches nothing, as before.
+- **If you build with feeds:** `T3PLUS_FEED_BASE` and `t3plus.local.json` are no longer
+  read. Set `FEED_BASE` in `src/personal.js` and add its origin to `host_permissions`
+  in `manifest.json` (which replaces `manifest.base.json`). See docs/setup.md.
+- Stopping t3+ (an extension reload) can no longer be undone by a late feed response,
+  and storage read/write failures are logged instead of swallowed.
+- The home feed no longer publishes fields nothing reads, and the bot feed no longer
+  publishes message bodies.
+
+**New.**
+
+- Bot rows show what the bot is doing instead of its latest message: approvals and
+  questions first, then running work, open threads or All caught up. Scheduled bots
+  show their next update in your local time.
+- Sidebar statuses show T3's icon and time without the word (Working, Done,
+  Approval, Input), on bot rows too. Under Title first, a pinned row's pin sits next to
+  its project icon.
+- Bundled Aurora, Contours and Facets wallpapers in Appearance.
+- Widgets and the details card match the composer's real material, including custom
+  themes and transparency preferences.
+- A floating browser preview below thread details, with Expand into the upper chat
+  column (docs/floating-preview.md).
+- Optional, when configured in `src/personal.js`: an Assistant group that puts your
+  bots on top with one router bot's threads under it (docs/assistant-group.md), and
+  Tasks, Calendar and Immich photos in new-thread details.
+- Bot rows are found even while T3 briefly drops a row's hidden title copy, and a
+  restored custom bot marker that matches no rows falls back to the built-in one.
+
+**Development.** `npm run perf` measures what t3+ costs a T3 tab over a scripted
+session (docs/notes/PERFORMANCE.md), and `npm run release:check` loads the release ZIP
+in Chromium against the harness fixture. The mirror-publishing tooling is gone.
+
 ## 0.18.2 (2026-11-12)
 - Compact sidebar: fix an empty sidebar after the latest nightly. When T3 wraps the
   header, search and thread list in one block, t3+ hid the whole block because it

@@ -1,4 +1,4 @@
-import { botArt, botClipPath, botEdgeColor, defaultBotColor, MOOD_BY_STATUS } from "./botArt.js";
+import { botArt, botClipPath, botEdgeColor, defaultBotColor } from "./botArt.js";
 import {
   BOT_COLORS,
   BOT_LIMITS,
@@ -7,9 +7,12 @@ import {
   DEFAULT_BOT_MARKER,
   SIDEBAR_ROW_PREFIX,
   STORAGE_KEYS,
+  T3_SELECTORS,
   T3PLUS,
 } from "./config.js";
-import { subscribeKey } from "./settings.js";
+import { syncAttr } from "./dom.js";
+import { createKeyStore, subscribeKey } from "./storage.js";
+import { THREAD_KEY } from "./threadKey.js";
 
 // Bot/orchestrator threads: top-level thread rows whose title carries the
 // exact marker token (default [[t3plus:bot:v1]]) as its first or last
@@ -28,6 +31,26 @@ export function parseBotTitle(title, marker = DEFAULT_BOT_MARKER) {
   return null;
 }
 
+/**
+ * Markers to read titles with, in order. A restored local override can outlive
+ * the server marker it was created for: an intentional custom marker stays
+ * authoritative whenever it matches, and the built-in marker recovers
+ * default-marked bots when it does not. A compatibility fallback for restored
+ * preferences, not a selector change or a settings reset.
+ */
+function markersToTry(marker) {
+  return marker === DEFAULT_BOT_MARKER ? [marker] : [marker, DEFAULT_BOT_MARKER];
+}
+
+/** A bot title's label (the title without its marker), with the built-in marker as fallback; "" when neither marks it. */
+export function botTitleLabel(title, marker = DEFAULT_BOT_MARKER) {
+  for (const m of markersToTry(marker)) {
+    const label = parseBotTitle(title, m)?.label;
+    if (label) return label;
+  }
+  return "";
+}
+
 // T3's row aria-label is "<title>, <status label>, <project>" (Sidebar.logic.ts
 // resolveSidebarRowAccessibility); status labels from SidebarThreadRow.tsx.
 const STATUS_BY_LABEL = new Map([
@@ -44,13 +67,22 @@ const STATUS_BY_LABEL = new Map([
   ["Done", "done"],
 ]);
 
+/** T3's status label from a row's aria-label, or null when it does not start with the title. */
+function rowStatusLabel(ariaLabel, title) {
+  const prefix = `${title}, `;
+  if (typeof ariaLabel !== "string" || !ariaLabel.startsWith(prefix)) return null;
+  return ariaLabel.slice(prefix.length).split(", ")[0];
+}
+
 /** working | waiting | attention | failed | done | idle, from the row's aria-label. */
 export function parseRowStatus(ariaLabel, title) {
-  if (typeof ariaLabel !== "string" || !ariaLabel.startsWith(title)) return "idle";
-  const rest = ariaLabel.slice(title.length);
-  if (!rest.startsWith(", ")) return "idle";
-  const next = rest.slice(2).split(", ")[0];
-  return STATUS_BY_LABEL.get(next) ?? "idle";
+  return STATUS_BY_LABEL.get(rowStatusLabel(ariaLabel, title)) ?? "idle";
+}
+
+/** T3's row distinguishes approvals from questions; older feeds only know attention. */
+export function requestKind(thread) {
+  const label = rowStatusLabel(thread?.ariaLabel, thread?.title);
+  return label === "Approval" ? "approval" : label === "Input" ? "question" : null;
 }
 
 /** Top-level: not nested under another thread (folder/shelf parents are fine). */
@@ -59,7 +91,6 @@ export function isTopLevelThread(thread) {
   return !parent || parent.startsWith(SIDEBAR_ROW_PREFIX.folder) || parent.startsWith(SIDEBAR_ROW_PREFIX.shelf);
 }
 
-/** Bots in a sidebar scan, with status and visible child count. */
 export function classifyBots(scan, marker) {
   const childCounts = new Map();
   for (const thread of scan.threads) {
@@ -81,8 +112,20 @@ export function classifyBots(scan, marker) {
   return bots;
 }
 
-// ---------- Per-bot presentation (local only) ----------
-// Two choices per bot: a shape and a color. The color's gradient is fixed.
+/**
+ * classifyBots with the configured marker, or with the built-in marker when
+ * the configured one matches no row (see markersToTry).
+ * @returns {{ bots: ReturnType<typeof classifyBots>, marker: string }} marker: the one that produced `bots`
+ */
+export function classifyBotsWithFallback(scan, marker) {
+  for (const m of markersToTry(marker)) {
+    const bots = classifyBots(scan, m);
+    if (bots.length) return { bots, marker: m };
+  }
+  return { bots: [], marker };
+}
+
+// Per-bot presentation, kept locally: a shape and a color. The color's gradient is fixed.
 
 /** { shape, color }. `key` picks a stable default color for a bot with none saved. */
 export function normalizeBotPrefs(raw, key = "") {
@@ -93,13 +136,11 @@ export function normalizeBotPrefs(raw, key = "") {
   };
 }
 
-const BOT_KEY = /^[^:\s]+:\S+$/;
-
-export function normalizeBotPrefsMap(raw) {
+function normalizeBotPrefsMap(raw) {
   const out = {};
   if (!raw || typeof raw !== "object") return out;
   for (const [key, value] of Object.entries(raw).slice(0, BOT_LIMITS.maxBots)) {
-    if (BOT_KEY.test(key)) out[key] = normalizeBotPrefs(value, key);
+    if (THREAD_KEY.test(key)) out[key] = normalizeBotPrefs(value, key);
   }
   return out;
 }
@@ -108,9 +149,9 @@ export function normalizeBotPrefsMap(raw) {
 export function createBotStore(area, changedEvent) {
   const key = STORAGE_KEYS.bots;
   const knownKey = STORAGE_KEYS.knownBots;
-  async function load() {
-    return normalizeBotPrefsMap((await area.get(key))?.[key]);
-  }
+  // update() and forget() write the map they built from load() as it is.
+  const prefs = createKeyStore(area, changedEvent, key, normalizeBotPrefsMap);
+  const { load } = prefs;
   return {
     load,
     async update(botKey, patch) {
@@ -131,15 +172,13 @@ export function createBotStore(area, changedEvent) {
       await area.set({ [knownKey]: known });
       return all;
     },
-    subscribe(listener) {
-      return subscribeKey(changedEvent, key, (value) => listener(normalizeBotPrefsMap(value)));
-    },
+    subscribe: prefs.subscribe,
     /** Bots seen in the sidebar: { key: { title, seenAt } }. Lets Settings list them. */
     async loadKnown() {
       const raw = (await area.get(knownKey))?.[knownKey];
       const out = {};
       if (raw && typeof raw === "object") {
-        for (const [k, v] of Object.entries(raw).slice(0, BOT_LIMITS.maxBots * 2)) {
+        for (const [k, v] of Object.entries(raw).slice(0, BOT_LIMITS.maxKnownBots)) {
           if (v && typeof v.title === "string") out[k] = { title: v.title.slice(0, 120), seenAt: Number(v.seenAt) || 0 };
         }
       }
@@ -161,7 +200,8 @@ export function createBotStore(area, changedEvent) {
  */
 export function resolveBotPresentation(bot, prefs) {
   const p = normalizeBotPrefs(prefs, bot.key);
-  const mood = MOOD_BY_STATUS[bot.status] ?? "awake";
+  // Every row and feed status is also a botArt mood; no status = the neutral face.
+  const mood = bot.status ?? "awake";
   const art = botArt(p.color, p.shape, mood);
   return {
     label: bot.titleLabel || "Bot",
@@ -171,18 +211,12 @@ export function resolveBotPresentation(bot, prefs) {
     fill: art.url,
     frames: art.frames,
     duration: art.duration,
+    motion: art.motion,
     clip: botClipPath(p.shape),
     edge: botEdgeColor(p.color, p.shape),
   };
 }
 
-const setAttr = (el, name, value) => {
-  if (value === null || value === undefined) {
-    if (el.hasAttribute(name)) el.removeAttribute(name);
-  } else if (el.getAttribute(name) !== value) {
-    el.setAttribute(name, value);
-  }
-};
 const setVar = (el, name, value) => {
   if (value === null) {
     if (el.style.getPropertyValue(name)) el.style.removeProperty(name);
@@ -199,16 +233,27 @@ export function applyAvatarVars(el, view) {
   const animated = view.frames > 1;
   setVar(el, "--t3plus-bot-frames", animated ? String(view.frames) : null);
   setVar(el, "--t3plus-bot-duration", animated ? `${view.duration}s` : null);
-  setAttr(el, "data-t3plus-shape", view.shape);
-  setAttr(el, "data-t3plus-mood", view.mood ?? null);
-  setAttr(el, "data-animated", animated ? "" : null);
+  // The animated PNG plays the same frames off the main thread (apng.js).
+  const motion = animated && view.motion ? view.motion : null;
+  setVar(el, "--t3plus-bot-motion", motion);
+  syncAttr(el, "data-t3plus-shape", view.shape);
+  syncAttr(el, "data-t3plus-mood", view.mood ?? null);
+  syncAttr(el, "data-animated", animated ? (motion ? "image" : "") : null);
+}
+
+/** Removes everything applyAvatarVars writes. */
+export function clearAvatarVars(el) {
+  for (const name of ["--t3plus-bot-fill", "--t3plus-bot-clip", "--t3plus-bot-edge", "--t3plus-bot-frames", "--t3plus-bot-duration", "--t3plus-bot-motion"]) {
+    el.style.removeProperty(name);
+  }
+  for (const name of ["data-t3plus-shape", "data-t3plus-mood", "data-animated"]) el.removeAttribute(name);
 }
 
 const LAYOUT_ATTRS = [
   "data-t3plus-bot-body",
   "data-t3plus-bot-top",
   "data-t3plus-bot-name",
-  "data-t3plus-bot-title-line",
+  T3PLUS.botTitleLineAttr,
   "data-t3plus-bot-lines",
   "data-t3plus-bot-hide",
   "data-t3plus-bot-status",
@@ -217,35 +262,42 @@ const LAYOUT_ATTRS = [
 /**
  * Tags T3's row lines so CSS can lay the bot out like a chat list entry:
  *   line 1: bot name ............ T3's status/time slot
- *   line 2: latest message, one line, truncated
+ *   line 2: workload or next scheduled update, one line, truncated
  * T3's branch line is hidden and the row body sizes to these two lines, so
  * every bot row is the same compact height whether or not T3 gave it a branch.
+ * t3+'s own elements on line 2 (the Assistant group's summary) stay visible.
  */
 function markBotLayout(row, titleEl, label) {
-  const body = [...row.children].find(
-    (child) => child.classList?.contains("relative") && child.classList?.contains("z-10"),
-  );
+  const body = row.querySelector(T3_SELECTORS.rowBody);
   if (!body) return;
   // T3's own lines only: t3+'s appended meta line is not one of them.
   const lines = [...body.children].filter((child) => child?.nodeType === 1 && !child.hasAttribute(T3PLUS.ownedAttr));
   const [top, titleLine, metaLine] = lines;
-  setAttr(body, "data-t3plus-bot-body", "");
-  setAttr(body, "data-t3plus-bot-lines", metaLine ? "3" : "2");
+  syncAttr(body, "data-t3plus-bot-body", "");
+  syncAttr(body, "data-t3plus-bot-lines", metaLine ? "3" : "2");
   if (top) {
-    setAttr(top, "data-t3plus-bot-top", "");
-    setAttr(top, "data-t3plus-bot-name", label);
+    syncAttr(top, "data-t3plus-bot-top", "");
+    syncAttr(top, "data-t3plus-bot-name", label);
     for (const child of [...top.children]) {
-      if (child.classList?.contains("group/sidebar-status-slot")) setAttr(child, "data-t3plus-bot-status", "");
-      else setAttr(child, "data-t3plus-bot-hide", "");
+      if (child.classList?.contains(T3_SELECTORS.rowStatusSlotClass)) syncAttr(child, "data-t3plus-bot-status", "");
+      else syncAttr(child, "data-t3plus-bot-hide", "");
     }
   }
   if (titleLine) {
-    setAttr(titleLine, "data-t3plus-bot-title-line", "");
+    syncAttr(titleLine, T3PLUS.botTitleLineAttr, "");
     for (const child of [...titleLine.children]) {
-      if (child !== titleEl && !child.contains(titleEl)) setAttr(child, "data-t3plus-bot-hide", "");
+      if (child !== titleEl && !child.contains(titleEl) && !child.hasAttribute(T3PLUS.ownedAttr)) syncAttr(child, "data-t3plus-bot-hide", "");
     }
   }
-  if (metaLine) setAttr(metaLine, "data-t3plus-bot-hide", "");
+  if (metaLine) syncAttr(metaLine, "data-t3plus-bot-hide", "");
+}
+
+/**
+ * A decorated bot row's second line (T3's title line), or null. decorateBotRows
+ * marks it, so read it after that has run for the current scan.
+ */
+export function botTitleLine(row) {
+  return row.querySelector(`[${T3PLUS.botTitleLineAttr}]`);
 }
 
 function clearBotLayout(row) {
@@ -258,17 +310,20 @@ function clearBotLayout(row) {
  * t3+-owned avatar element. Idempotent: only changed values are written, so
  * re-running after each mutation is cheap. Undecorates rows that stopped
  * being bots.
- * @param {(key: string) => string} previewFor latest-message line for a bot
+ * @param {(key: string) => string} previewFor workload or next-update line for a bot
+ * @param {{ ownedSecondLine?: Set<string> }} [options] ownedSecondLine: bots whose
+ *   second line another module fills (the Assistant group's summary, mounted
+ *   on botTitleLine), so they get no preview of their own
  */
-export function decorateBotRows(doc, scan, bots, prefsByKey, previewFor = () => "") {
+export function decorateBotRows(doc, scan, bots, prefsByKey, previewFor = () => "", { ownedSecondLine = new Set() } = {}) {
   const botRows = new Set();
   for (const bot of bots) {
     const { row, titleEl } = bot.thread;
     botRows.add(row);
     const view = resolveBotPresentation(bot, prefsByKey[bot.key]);
-    const preview = previewFor(bot.key);
-    setAttr(row, T3PLUS.botAttr, bot.status);
-    setAttr(row, "aria-description", preview ? `t3+ bot: ${view.label}. ${preview}` : `t3+ bot: ${view.label}`);
+    const preview = ownedSecondLine.has(bot.key) ? "" : previewFor(bot.key);
+    syncAttr(row, T3PLUS.botAttr, bot.status);
+    syncAttr(row, "aria-description", preview ? `t3+ bot: ${view.label}. ${preview}` : `t3+ bot: ${view.label}`);
     markBotLayout(row, titleEl, view.label);
 
     let avatar = [...row.children].find((child) => child.classList?.contains("t3plus-bot-avatar"));
@@ -280,19 +335,16 @@ export function decorateBotRows(doc, scan, bots, prefsByKey, previewFor = () => 
       row.append(avatar);
     }
     applyAvatarVars(avatar, view);
-    setAttr(avatar, "data-status", bot.status);
+    syncAttr(avatar, "data-status", bot.status);
 
-    if (titleEl) setAttr(titleEl, T3PLUS.botTitleAttr, preview);
-
-    // Rows decorated by v0.5 carried a third (model/computer) line; drop it.
-    for (const old of row.querySelectorAll(".t3plus-bot-metaline")) old.remove();
+    if (titleEl) syncAttr(titleEl, T3PLUS.botTitleAttr, preview);
   }
   for (const row of scan.threads.map((t) => t.row)) {
     if (!botRows.has(row) && row.hasAttribute(T3PLUS.botAttr)) undecorateBotRow(row);
   }
 }
 
-export function undecorateBotRow(row) {
+function undecorateBotRow(row) {
   row.removeAttribute(T3PLUS.botAttr);
   row.removeAttribute("aria-description");
   if (row.getAttribute("style") === "") row.removeAttribute("style");
@@ -301,34 +353,48 @@ export function undecorateBotRow(row) {
   for (const el of row.querySelectorAll(`[${T3PLUS.ownedAttr}]`)) el.remove();
 }
 
-/** Removes all bot decoration under `root` (feature off, or stop). */
+/** Removes every bot decoration under `root`: rows, t3+'s owned elements, the breadcrumb and hover cards. */
 export function clearBotDecoration(root) {
   for (const row of root.querySelectorAll(`[${T3PLUS.botAttr}]`)) undecorateBotRow(row);
   for (const el of root.querySelectorAll(`[${T3PLUS.ownedAttr}]`)) el.remove();
+  for (const el of root.querySelectorAll(`[${T3PLUS.botBreadcrumbAttr}]`)) undecorateBreadcrumb(el);
+  for (const el of root.querySelectorAll(`[${HOVER_RAW_ATTR}]`)) {
+    undecorateHoverCard(el);
+    el.removeAttribute(HOVER_RAW_ATTR);
+  }
 }
 
-const BREADCRUMB_VARS = ["--t3plus-bot-fill", "--t3plus-bot-clip", "--t3plus-bot-edge"];
+const BREADCRUMB_HEADING = `${T3_SELECTORS.threadBreadcrumb} h2`;
+const BREADCRUMB_LABEL_ATTR = "data-t3plus-bot-breadcrumb-label";
+
+function undecorateBreadcrumb(el) {
+  el.removeAttribute(T3PLUS.botBreadcrumbAttr);
+  el.removeAttribute(BREADCRUMB_LABEL_ATTR);
+  clearAvatarVars(el);
+}
 
 /** Decorates the active thread breadcrumb without changing T3's route/header structure. */
 export function decorateBotBreadcrumb(doc, bot) {
-  const heading = bot ? doc.querySelector('[aria-label="Thread breadcrumb"] h2') : null;
-  for (const old of doc.querySelectorAll('[aria-label="Thread breadcrumb"] h2[data-t3plus-bot-breadcrumb]')) {
-    if (old === heading) continue;
-    old.removeAttribute("data-t3plus-bot-breadcrumb");
-    old.removeAttribute("data-t3plus-bot-breadcrumb-label");
-    old.removeAttribute("data-t3plus-shape");
-    for (const name of BREADCRUMB_VARS) old.style.removeProperty(name);
+  const heading = bot ? doc.querySelector(BREADCRUMB_HEADING) : null;
+  for (const old of doc.querySelectorAll(`${BREADCRUMB_HEADING}[${T3PLUS.botBreadcrumbAttr}]`)) {
+    if (old !== heading) undecorateBreadcrumb(old);
   }
   if (!heading) return;
   const view = resolveBotPresentation(bot, bot.prefs);
-  setAttr(heading, "data-t3plus-bot-breadcrumb", "");
-  setAttr(heading, "data-t3plus-bot-breadcrumb-label", view.label);
+  syncAttr(heading, T3PLUS.botBreadcrumbAttr, "");
+  syncAttr(heading, BREADCRUMB_LABEL_ATTR, view.label);
   applyAvatarVars(heading, view);
 }
 
-/** The thread hover card's title line (ThreadHoverCard.tsx): first line of T3's tooltip popup. */
-// T3 main uses font-medium; the open redesign stack (#28839-#28845) switches it to font-semibold.
-export const HOVER_CARD_TITLE = '[data-slot="tooltip-popup"] div.truncate:is(.font-medium, .font-semibold)';
+const HOVER_LABEL_ATTR = "data-t3plus-bot-hover-label";
+/** The card text last checked, so an unchanged card is skipped. */
+const HOVER_RAW_ATTR = "data-t3plus-hover-raw";
+
+function undecorateHoverCard(el) {
+  el.removeAttribute(T3PLUS.botHoverAttr);
+  el.removeAttribute(HOVER_LABEL_ATTR);
+  clearAvatarVars(el);
+}
 
 /**
  * T3's thread hover card shows the raw title, marker included. Like the
@@ -338,19 +404,18 @@ export const HOVER_CARD_TITLE = '[data-slot="tooltip-popup"] div.truncate:is(.fo
  * @param {Map<string, object>} botsByTitle raw title -> bot (from classifyBots)
  */
 export function decorateBotHoverCards(root, botsByTitle, prefsByKey) {
-  for (const el of root.querySelectorAll(HOVER_CARD_TITLE)) {
+  for (const el of root.querySelectorAll(T3_SELECTORS.hoverCardTitle)) {
     const raw = el.textContent ?? "";
-    if (el.getAttribute("data-t3plus-hover-raw") === raw && (el.hasAttribute("data-t3plus-bot-hover") || !botsByTitle.has(raw.trim()))) continue;
-    el.setAttribute("data-t3plus-hover-raw", raw);
+    if (el.getAttribute(HOVER_RAW_ATTR) === raw && (el.hasAttribute(T3PLUS.botHoverAttr) || !botsByTitle.has(raw.trim()))) continue;
+    el.setAttribute(HOVER_RAW_ATTR, raw);
     const bot = botsByTitle.get(raw.trim());
     if (!bot) {
-      el.removeAttribute("data-t3plus-bot-hover");
-      el.removeAttribute("data-t3plus-bot-hover-label");
+      undecorateHoverCard(el);
       continue;
     }
     const view = resolveBotPresentation(bot, prefsByKey[bot.key]);
-    el.setAttribute("data-t3plus-bot-hover", "");
-    el.setAttribute("data-t3plus-bot-hover-label", view.label);
+    el.setAttribute(T3PLUS.botHoverAttr, "");
+    el.setAttribute(HOVER_LABEL_ATTR, view.label);
     applyAvatarVars(el, view);
   }
 }

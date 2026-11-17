@@ -78,7 +78,7 @@ export function createUsageDither(doc) {
           entry.signature = signature;
           entry.dither.setSeries(readUsageSeries(svg));
         } else {
-          entry.dither.paint(); // no-op unless the pixel size or layout changed
+          entry.dither.refresh(); // no-op unless the pixel ratio or cell size changed (size: its ResizeObserver)
         }
       }
     },

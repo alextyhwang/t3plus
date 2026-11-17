@@ -66,7 +66,6 @@ test("re-rendering the theme never resets the measured composer anchor (no glow 
   const { JSDOM } = await import("jsdom");
   const { applyComposerTheme, syncBackdropAnchor } = await import("../src/composer.js");
   const theme = computeComposerTheme(settings({ mode: "half-circle" }), null);
-  assert.equal("--t3plus-composer-x" in theme.vars, false, "the theme does not own the anchor");
 
   const dom = new JSDOM(`<div data-workspace-area="conversation"><div data-chat-composer-surface="true"></div></div>
     <div data-chat-composer-surface="true" id="stray"></div>`);

@@ -7,20 +7,13 @@ import { bayerThreshold } from "./ditherMath.js";
 // threshold decides which (the same technique as the background). Two white
 // pixel eyes sit at the shape's visual center and change with the bot's mood.
 //
-// Animated moods are horizontal sprite sheets; CSS steps through the frames
-// (content.css, @keyframes t3plus-bot-sprite). Static moods are one frame.
+// Animated moods are horizontal sprite sheets. In the browser they also come
+// as an animated PNG with the same frames and timing, which Chrome plays off
+// the main thread (apng.js); CSS steps through the sheet's frames only
+// without one (content.css, @keyframes t3plus-bot-sprite). Static moods are
+// one frame.
 
 export const BOT_GRID = 24;
-
-/** Row status (bots.js parseRowStatus) -> face. "awake" is the neutral face used in Settings. */
-export const MOOD_BY_STATUS = Object.freeze({
-  idle: "idle",
-  working: "working",
-  waiting: "waiting",
-  attention: "attention",
-  failed: "failed",
-  done: "done",
-});
 
 const BASE_LIGHT = [0.3, 0.26];
 
@@ -195,26 +188,27 @@ const cache = new Map();
 // In the browser the sprites are encoded as tiny PNGs (about 1-2 KB, against
 // up to ~40 KB of per-pixel SVG paths for an 8-frame animation): the content
 // script registers a canvas encoder here. Without one (Node tests) the SVG
-// is used. The encoder gets one palette index per pixel and the palette.
+// is used. The encoder gets one palette index per pixel, the palette and the
+// frame timing, and returns the sheet's data URL, or { sheet, motion } with
+// the animated PNG as `motion`.
 let pixelEncoder = null;
 export function setBotArtEncoder(encode) {
   pixelEncoder = typeof encode === "function" ? encode : null;
   cache.clear();
 }
 
-/** Whether `shape` brings its own colors (BOT_SKINS), so the bot's color is unused. */
 export function botShapeHasOwnColors(shape) {
   return Object.hasOwn(BOT_SKINS, shape ?? "");
 }
 
 /**
  * The face for (color, shape, mood). Ball shapes (BOT_SKINS) ignore `color`.
- * @returns {{ url: string, frames: number, duration: number }} url is a CSS url("data:...").
+ * @returns {{ url: string, frames: number, duration: number, motion: string | null }} url is a CSS
+ *   url("data:...") of the sprite sheet; motion, when the encoder made one, of the animated PNG.
  */
 export function botArt(color, shape = "circle", mood = "awake") {
   const s = Object.hasOwn(BOT_SHAPES, shape) ? shape : "circle";
   const skin = Object.hasOwn(BOT_SKINS, s) ? BOT_SKINS[s] : null;
-  // A ball shape has its own colors: the bot's color does not change it.
   const c = skin ? "" : Object.hasOwn(BOT_COLORS, color) ? color : "blue";
   const m = Object.hasOwn(MOODS, mood) ? mood : "awake";
   const key = `${c}:${s}:${m}`;
@@ -247,18 +241,20 @@ export function botArt(color, shape = "circle", mood = "awake") {
   const fills = [...stops, "#ffffff"];
   let encoded = null;
   try {
-    encoded = pixelEncoder?.(pixels, width, BOT_GRID, fills) ?? null;
+    encoded = pixelEncoder?.(pixels, width, BOT_GRID, fills, { frames: frames.length, frameMs: (duration * 1000) / frames.length }) ?? null;
   } catch {
     encoded = null;
   }
+  const sheet = typeof encoded === "string" ? encoded : encoded?.sheet;
+  const motion = frames.length > 1 && typeof encoded?.motion === "string" ? `url("${encoded.motion}")` : null;
   let url;
-  if (encoded) url = `url("${encoded}")`;
+  if (sheet) url = `url("${sheet}")`;
   else {
     const body = d.map((path, i) => (path ? `<path fill="${fills[i]}" d="${path}"/>` : "")).join("");
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${BOT_GRID}" shape-rendering="crispEdges">${body}</svg>`;
     url = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
   }
-  const art = { url, frames: frames.length, duration };
+  const art = { url, frames: frames.length, duration, motion };
   cache.set(key, art);
   return art;
 }
@@ -268,7 +264,6 @@ export function botFillUrl(color, shape = "circle") {
   return botArt(color, shape, "awake").url;
 }
 
-/** clip-path value for `shape`. */
 export function botClipPath(shape) {
   return BOT_SHAPES[shape] ?? BOT_SHAPES.circle;
 }

@@ -12,6 +12,9 @@ server/config.local.json next to this file, else a default:
                                       Codex pool line (off when unset)
     T3PLUS_ACTIVITY_URL  activityUrl  optional: a tokens-per-day JSON source for
                                       the Activity card (off when unset)
+    T3PLUS_IMMICH_URL    immichUrl    optional: private Immich API origin (off when unset)
+    IMMICH_API_KEY       immichApiKey optional: server-only read key, never published
+    T3PLUS_IMMICH_STATUS_URL immichStatusUrl optional: measured status JSON source
 """
 import json
 import os
@@ -40,3 +43,6 @@ T3_CLI = setting("t3Cli", "T3_CLI", shutil.which("t3") or "t3")
 TIME_ZONE = setting("timeZone", "T3PLUS_TIME_ZONE", "UTC")
 LIMITS_API = setting("limitsApi", "T3PLUS_LIMITS_API")
 ACTIVITY_URL = setting("activityUrl", "T3PLUS_ACTIVITY_URL")
+IMMICH_URL = setting("immichUrl", "T3PLUS_IMMICH_URL")
+IMMICH_API_KEY = setting("immichApiKey", "IMMICH_API_KEY")
+IMMICH_STATUS_URL = setting("immichStatusUrl", "T3PLUS_IMMICH_STATUS_URL")

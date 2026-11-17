@@ -64,10 +64,10 @@ export function scanSidebar(inner) {
   const threads = [];
   const folders = new Map();
   const shelves = new Map();
-  if (!inner) return { threads, folders, shelves, folderMode: false };
+  if (!inner) return { threads, folders, shelves };
 
   for (const row of inner.querySelectorAll(T3_SELECTORS.sidebarRow)) {
-    const id = row.getAttribute("data-sidebar-row") ?? "";
+    const id = row.getAttribute(T3_SELECTORS.sidebarRowAttr) ?? "";
     const li = row.closest("li");
     // T3's list motion fades removed rows out as inert, aria-hidden clones; skip them.
     if (li && li.hasAttribute("inert") && li.getAttribute("aria-hidden") === "true") continue;
@@ -98,7 +98,7 @@ export function scanSidebar(inner) {
       current: row.getAttribute("aria-current") === "page",
     });
   }
-  return { threads, folders, shelves, folderMode: folders.size > 0 };
+  return { threads, folders, shelves };
 }
 
 /**
@@ -106,30 +106,26 @@ export function scanSidebar(inner) {
  * visible span with a dir attribute. Returns both (visible one may be null
  * while the row is being renamed).
  */
-export function readRowTitle(row) {
+function readRowTitle(row) {
   const srOnly = row.querySelector(".sr-only:not([role])");
-  const title = srOnly?.textContent ?? "";
+  const visibleTitles = [...row.querySelectorAll('span[aria-hidden="true"]')]
+    .filter((span) => span.childElementCount === 0 && span.textContent?.trim());
+  // T3 normally supplies an exact sr-only title. During a row transition, or
+  // after a sidebar markup change, that copy can be absent for a check cycle;
+  // the visible title span and row aria-label are stable fallbacks. Keeping
+  // these fallbacks here lets bot detection recover instead of waiting for a
+  // full remount of the sidebar.
+  const title = srOnly?.textContent?.trim() || visibleTitles[0]?.textContent?.trim() || (row.getAttribute("aria-label") ?? "").split(",")[0]?.trim() || "";
   let titleEl = null;
   if (title) {
-    for (const span of row.querySelectorAll('span[aria-hidden="true"]')) {
-      if (span.childElementCount === 0 && span.textContent === title) {
+    for (const span of visibleTitles) {
+      if (span.textContent?.trim() === title) {
         titleEl = span;
         break;
       }
     }
   }
   return { title, titleEl };
-}
-
-/** True when `thread` belongs to `profile` by project folder or explicit thread key. */
-export function isThreadInProfile(thread, profile) {
-  if (!profile) return true;
-  if (profile.threads.includes(thread.key)) return true;
-  const project = thread.folderKey ?? thread.projectKey;
-  if (profile.includeAll) {
-    return !projectMatchesAny(project, profile.excludeProjects);
-  }
-  return projectMatchesAny(project, profile.projects);
 }
 
 function projectAliases(value) {
@@ -150,9 +146,15 @@ export function profileIncludesProject(profile, project) {
   return profile.includeAll ? !projectMatchesAny(project, profile.excludeProjects) : projectMatchesAny(project, profile.projects);
 }
 
-function profileIncludesFolder(profile, key) {
-  if (!profile) return true;
-  return profile.includeAll ? !projectMatchesAny(key, profile.excludeProjects) : projectMatchesAny(key, profile.projects);
+/**
+ * True when the thread `key` belongs to `profile` (null = All): a bot the
+ * profile keeps (showBots), a thread it lists by key, or a scanned `thread`
+ * in one of its projects. Without a scanned row only the key list counts.
+ */
+export function isProfileMember(profile, key, { thread = null, bot = false } = {}) {
+  if (!profile || (bot && profile.showBots)) return true;
+  if (profile.threads.includes(key)) return true;
+  return Boolean(thread) && profileIncludesProject(profile, thread.folderKey ?? thread.projectKey);
 }
 
 /**
@@ -175,7 +177,7 @@ export function computeProfileVisibility(scan, profile, { routeThreadKey = null,
   let visibleThreads = 0;
   for (const thread of scan.threads) {
     const isRoute = thread.key === routeThreadKey || thread.current;
-    const member = isThreadInProfile(thread, profile) || (profile.showBots && botKeys.has(thread.key));
+    const member = isProfileMember(profile, thread.key, { thread, bot: botKeys.has(thread.key) });
     const visible = member || isRoute;
     if (isRoute && !member) outside = thread.row;
     if (thread.parent) {
@@ -192,7 +194,7 @@ export function computeProfileVisibility(scan, profile, { routeThreadKey = null,
     }
   }
   for (const [key, folder] of scan.folders) {
-    if (!profileIncludesFolder(profile, key) && !visibleFolders.has(key)) hidden.add(folder.li);
+    if (!profileIncludesProject(profile, key) && !visibleFolders.has(key)) hidden.add(folder.li);
   }
   for (const [id, li] of scan.shelves) {
     const counts = childCounts.get(id);
@@ -220,7 +222,6 @@ export function applyProfileVisibility(inner, { hidden, outside }) {
   if (outside && !outside.hasAttribute(T3PLUS.outsideAttr)) outside.setAttribute(T3PLUS.outsideAttr, "");
 }
 
-/** Removes every t3+ visibility change (profile "All", feature off, or stop). */
 export function clearProfileVisibility(root) {
   applyProfileVisibility(root, { hidden: new Set(), outside: null });
 }

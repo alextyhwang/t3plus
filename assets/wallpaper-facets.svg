@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <!-- Original t3+ artwork. Large adjacent planes with restrained contrast. -->
+  <path fill="#393744" d="M0 0h1600v1000H0z"/>
+  <path fill="#42404e" d="m0 0 600 0-230 340L0 480z"/>
+  <path fill="#454553" d="m600 0 560 0-90 410-700-70z"/>
+  <path fill="#504a59" d="m1160 0 440 0v500l-530-90z"/>
+  <path fill="#4b515c" d="m0 480 370-140 240 390L0 880z"/>
+  <path fill="#515460" d="m370 340 700 70-460 320z"/>
+  <path fill="#66606c" d="m1070 410 530 90-300 310-690-80z"/>
+  <path fill="#7c6a75" d="m1600 500-300 310 300 190z"/>
+  <path fill="#5c6970" d="m0 880 610-150-160 270H0z"/>
+  <path fill="#758084" d="m610 730 690 80-340 190H450z"/>
+  <path fill="#8e8388" d="m1300 810 300 190H960z"/>
+</svg>

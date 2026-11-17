@@ -1,5 +1,6 @@
 import { JSDOM } from "jsdom";
 import { createT3Plus } from "../src/app.js";
+import { createGroupViewStore } from "../src/assistantGroup.js";
 import { createBotStore } from "../src/bots.js";
 import { createImageStore } from "../src/imageStore.js";
 import { createProfileViewStore } from "../src/profiles.js";
@@ -114,6 +115,7 @@ export function createApp(dom, storage = createFakeChromeStorage(), extra = {}) 
     profileViewStore: createProfileViewStore(storage.area, storage.onChanged),
     configProvider: createConfigProvider({ area: storage.area, changedEvent: storage.onChanged, fetchRemote: remote, now: () => 1_000_000 }),
     botStore: createBotStore(storage.area, storage.onChanged),
+    groupViewStore: createGroupViewStore(storage.area, storage.onChanged),
     assetUrl: (path) => `chrome-extension://t3plus-test/${path}`,
     throttleMs: 10_000, // tests drive checks with watcher.flush()
     ...rest,

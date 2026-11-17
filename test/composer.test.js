@@ -38,9 +38,9 @@ test("the backdrop host is the conversation pane, never the composer card, and J
 test("the current T3 composer surface is painted without any tagging", () => {
   const dom = createDom("/env/thread", T3_COMPOSER_HTML);
   const doc = dom.window.document;
-  const result = syncComposerSurfaces(doc, true);
-  assert.deepEqual(result, { surfaces: 1, tagged: 0, orphanEditors: 0 });
+  assert.equal(syncComposerSurfaces(doc, true).orphanEditors, 0);
   assert.ok(doc.querySelector('[data-chat-composer-surface="true"]').matches(PAINTED_SURFACE_SELECTOR));
+  assert.equal(doc.querySelector(`[${T3PLUS.surfaceAttr}]`), null, "T3's own hook is enough");
 });
 
 test("fallback tags the body's parent when the surface hook disappears, and untags when disabled", () => {
@@ -48,8 +48,10 @@ test("fallback tags the body's parent when the surface hook disappears, and unta
   const doc = dom.window.document;
   const card = doc.querySelector('[data-chat-composer-body="true"]').parentElement;
 
-  assert.equal(syncComposerSurfaces(doc, true).tagged, 1);
+  syncComposerSurfaces(doc, true);
+  assert.ok(card.hasAttribute(T3PLUS.surfaceAttr));
   assert.ok(card.matches(PAINTED_SURFACE_SELECTOR));
+  assert.equal(doc.querySelectorAll(`[${T3PLUS.surfaceAttr}]`).length, 1, "only the card is tagged");
 
   syncComposerSurfaces(doc, false);
   assert.equal(card.hasAttribute(T3PLUS.surfaceAttr), false);

@@ -52,3 +52,46 @@ test("a steep step stays connected and a dashed series leaves gaps", () => {
   assert.equal(dashed[8 * cols + 2], -1);
   assert.equal(dashed[8 * cols + 1], 0);
 });
+
+test("refresh() repaints only when the pixel ratio or cell size changed, reading no layout", async () => {
+  const { JSDOM } = await import("jsdom");
+  const dom = new JSDOM("<!doctype html><body></body>");
+  const win = dom.window;
+  const doc = win.document;
+  let resized = null;
+  win.ResizeObserver = class {
+    constructor(callback) {
+      resized = callback;
+    }
+    observe() {}
+    disconnect() {}
+  };
+  const { createDitherCanvas } = await import("../src/ditherChart.js");
+  const chart = createDitherCanvas(doc, [{ points: [[0, 0.5], [1, 0.5]], color: "red" }]);
+  let fills = 0;
+  let layoutReads = 0;
+  let width = 40;
+  chart.canvas.getContext = () => ({ clearRect() {}, fillRect: () => (fills += 1), set globalAlpha(_v) {}, set fillStyle(_v) {} });
+  for (const prop of ["clientWidth", "clientHeight"]) {
+    Object.defineProperty(chart.canvas, prop, { get: () => ((layoutReads += 1), prop === "clientWidth" ? width : 40) });
+  }
+  doc.documentElement.style.setProperty("--t3plus-dither-cell", "2px");
+  doc.body.append(chart.canvas);
+
+  assert.equal(chart.paint(), true);
+  const painted = fills;
+  assert.ok(painted > 0);
+  layoutReads = 0;
+  assert.equal(chart.refresh(), true);
+  assert.equal(fills, painted, "nothing changed: no repaint");
+  assert.equal(layoutReads, 0, "and no layout read");
+  doc.documentElement.style.setProperty("--t3plus-dither-cell", "4px");
+  chart.refresh();
+  assert.ok(fills > painted, "a new cell size repaints");
+  // Size changes come through the ResizeObserver.
+  const before = fills;
+  width = 80;
+  resized();
+  assert.ok(fills > before);
+  chart.disconnect();
+});

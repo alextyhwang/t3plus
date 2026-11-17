@@ -105,7 +105,6 @@ function blobToDataUrl(blob) {
  * Decodes, downscales, and re-encodes an uploaded image so it fits the storage
  * cap. Animated GIFs keep only their first frame, which keeps the page static.
  * Browser-only (needs createImageBitmap and OffscreenCanvas).
- * `limits` defaults to the background image limits; bot icons pass BOT_ICON_LIMITS.
  */
 export async function prepareImageFile(file, limits = IMAGE_LIMITS) {
   const problem = validateImageFile(file, limits);
@@ -113,7 +112,6 @@ export async function prepareImageFile(file, limits = IMAGE_LIMITS) {
 
   const bitmap = await createImageBitmap(file);
   try {
-    // Try progressively smaller encodes until one fits under the cap.
     const attempts = [
       { edge: limits.maxEdgePx, quality: 0.85 },
       { edge: Math.round(limits.maxEdgePx * 0.8), quality: 0.75 },

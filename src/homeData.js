@@ -23,7 +23,7 @@ function cleanWindow(w) {
 
 /** Validates the feed. Never throws; returns null for anything unusable. */
 export function parseHomeFeedText(raw) {
-  if (typeof raw !== "string" || raw.length > CONFIG_LIMITS.maxChars * 4) return null;
+  if (typeof raw !== "string" || raw.length > CONFIG_LIMITS.maxChars) return null;
   let d;
   try {
     d = JSON.parse(raw);
@@ -61,19 +61,7 @@ export function parseHomeFeedText(raw) {
           })),
         }
       : null;
-  const history = (Array.isArray(d.limitHistory) ? d.limitHistory : [])
-    .filter((h) => iso(h?.t) && typeof h.weekCap === "number" && h.weekCap > 0)
-    .map((h) => ({ t: Date.parse(h.t), weekLeft: num(h.weekLeft), weekCap: num(h.weekCap) }))
-    .sort((a, b) => a.t - b.t);
-  const automations = (Array.isArray(d.automations) ? d.automations : []).slice(0, 100).map((a) => ({
-    title: text(a?.title, 80),
-    project: typeof a?.project === "number" ? a.project : null,
-    threadKey: typeof a?.threadKey === "string" && /^[^:\s]+:\S+$/.test(a.threadKey) ? a.threadKey : null,
-    nextRunAt: iso(a?.nextRunAt),
-    lastRunAt: iso(a?.lastRunAt),
-    lastStatus: text(a?.lastStatus, 20),
-  }));
-  // Recorded pools: [unix seconds, left, cap, (five-hour left, five-hour cap)] in percent of a Plus week.
+  // Recorded pools: [unix seconds, left, cap] in percent of a Plus week.
   const series = (list) =>
     (Array.isArray(list) ? list : [])
       .filter((p) => Array.isArray(p) && p.length >= 3 && p.slice(0, 3).every((v) => typeof v === "number" && Number.isFinite(v)) && p[2] > 0)
@@ -87,16 +75,14 @@ export function parseHomeFeedText(raw) {
     spend,
     claude,
     codex,
-    history,
-    automations,
     codexSeries: series(d.codexSeries),
     // The optional activity source: AI tokens per day, all providers.
-    // {day: [total, {provider: tokens}]} (or a bare total from older feeds).
+    // {day: [total, {provider: tokens}]}.
     aiActivity: new Map(
       Object.entries(d.aiActivity && typeof d.aiActivity === "object" ? d.aiActivity : {}).flatMap(([day, v]) => {
-        const total = Array.isArray(v) ? v[0] : v;
+        const total = Array.isArray(v) ? v[0] : null;
         if (!isDay(day) || typeof total !== "number" || !Number.isFinite(total) || total < 0) return [];
-        const raw = Array.isArray(v) && v[1] && typeof v[1] === "object" ? v[1] : {};
+        const raw = v[1] && typeof v[1] === "object" ? v[1] : {};
         const providers = Object.fromEntries(Object.entries(raw).filter(([, n]) => typeof n === "number" && n > 0).map(([k, n]) => [k.slice(0, 24), n]));
         return [[day, { total, providers }]];
       }),
@@ -133,11 +119,6 @@ export function dailyActivity(feed, projectSet) {
   return out;
 }
 
-/**
- * GitHub-style heatmap: `weeks` columns ending with the current week
- * (Sunday-first), each cell a level 0-4 by turns, with quartile thresholds
- * over the active days so one huge day does not wash out the rest.
- */
 /** The activity source's tokens per day as a heatmap input (value in `runs`, so heatmap() levels it). */
 export function tokenDaily(feed) {
   const out = new Map();
@@ -145,6 +126,11 @@ export function tokenDaily(feed) {
   return out;
 }
 
+/**
+ * GitHub-style heatmap: `weeks` columns ending with the current week
+ * (Sunday-first), each cell a level 0-4 by turns, with quartile thresholds
+ * over the active days so one huge day does not wash out the rest.
+ */
 export function heatmap(daily, now, weeks = 26) {
   const end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const start = new Date(end);
@@ -178,14 +164,11 @@ export function heatmap(daily, now, weeks = 26) {
 }
 
 /** Claude Max ($100 plan) is 5x Claude Pro ($20). */
-export const claudeWeight = (plan) => (/max/i.test(plan) ? 5 : 1);
+const claudeWeight = (plan) => (/max/i.test(plan) ? 5 : 1);
 
 /** Pro is 10x Plus, the scale T3 and the Limits page use. */
-export const planWeight = (plan) => (/pro/i.test(plan) ? 10 : 1);
+const planWeight = (plan) => (/pro/i.test(plan) ? 10 : 1);
 const isWeekly = (w) => (w.durationMins ?? 0) >= 1440 || w.kind === "weekly";
-const isFiveHour = (w) => !isWeekly(w) && ((w.durationMins ?? 0) > 0 || w.kind === "session");
-
-// ---------- Pools (weekly pool charts, compact) ----------
 
 const HOUR = 3600000;
 
@@ -242,24 +225,17 @@ export function poolModel(feed, kind, now = Date.now(), { back = 3, ahead = 3 } 
     accounts = feed.claude.map((c) => ({ label: c.label, plan: c.plan, windows: c.windows }));
     if (!accounts.some((a) => a.windows.some(isWeekly))) return null;
     accounts = accounts.filter((a) => a.windows.some(isWeekly));
-    // Claude Max ($100) is 5x Claude Pro ($20). T3 reports both Max tiers as "Claude Max".
+    // T3 reports both Max tiers as "Claude Max".
     weightOf = (a) => claudeWeight(a.plan) * 100;
     recorded = feed.claudeSeries;
   }
   let cap = 0;
   let left = 0;
-  let fiveCap = 0;
-  let fiveLeft = 0;
   for (const a of accounts) {
     const w = weightOf(a);
     const weekly = a.windows.find(isWeekly);
-    const five = a.windows.find(isFiveHour);
     cap += w;
     left += w * (1 - (weekly?.usedPercent ?? 0) / 100);
-    if (five) {
-      fiveCap += w;
-      fiveLeft += w * (1 - five.usedPercent / 100);
-    }
   }
   const from = now - back * 24 * HOUR;
   const until = now + ahead * 24 * HOUR;
@@ -271,15 +247,11 @@ export function poolModel(feed, kind, now = Date.now(), { back = 3, ahead = 3 } 
     kind,
     cap: Math.round(cap),
     left: Math.round(left),
-    fiveCap: Math.round(fiveCap),
-    fiveLeft: Math.round(fiveLeft),
-    accounts: accounts.length,
     from,
     until,
     now,
     recorded: [...shown, { t: now, left }],
     projected: projection.points,
-    burn: projection.burn,
     runsOutAt: projection.runsOutAt,
     refills: refills.filter((r) => r.at <= until),
     nextRefill,
@@ -315,12 +287,15 @@ export function tokenSeries(feed, now, days = 14) {
     keys.push(dayKey(d));
   }
   const providers = new Set();
-  for (const key of keys) for (const p of Object.keys(feed.spend.get(key) ?? {})) providers.add(p);
+  // Provider identity is historical. Keep a provider in the legend even if
+  // its account was removed and it has no values in the currently visible
+  // window; otherwise the Usage card makes past work look deleted.
+  for (const [, byProvider] of feed.spend) for (const p of Object.keys(byProvider ?? {})) providers.add(p);
   const order = ["codex", "claude", ...[...providers].filter((p) => p !== "codex" && p !== "claude").sort()];
   const series = order
     .filter((p) => providers.has(p))
     .map((p) => ({ provider: p, values: keys.map((k) => feed.spend.get(k)?.[p]?.[1] ?? 0) }))
-    .filter((s) => s.values.some((v) => v > 0));
+    .filter((s) => s.values.some((v) => v > 0) || providers.has(s.provider));
   const monthStart = dayKey(new Date(now.getFullYear(), now.getMonth(), 1));
   const month = {};
   for (const [day, byProvider] of feed.spend) {
@@ -344,7 +319,6 @@ export function formatTokens(v) {
   return String(Math.round(v));
 }
 
-/** Loads the feed through the background worker; falls back to the cached copy. */
 /**
  * Which pool belongs to the model in T3's composer picker, from its label
  * ("Claude Opus 5.5, High", "GPT-6.1 Sol, High"): "claude", "codex" or null.
@@ -356,11 +330,16 @@ export function providerKind(label) {
   return null;
 }
 
+/** Loads the feed through the background worker; falls back to the cached copy. */
 export function createHomeFeed({ area, fetchRemote, endpoint = HOME_FEED_ENDPOINT }) {
   const key = STORAGE_KEYS.homeFeedCache;
+  // The text last read from or written to the cache: an unchanged poll is not written again.
+  let cachedText = null;
   async function readCache() {
     const value = (await area.get(key))?.[key];
-    return typeof value?.text === "string" ? parseHomeFeedText(value.text) : null;
+    if (typeof value?.text !== "string") return null;
+    cachedText = value.text;
+    return parseHomeFeedText(value.text);
   }
   return {
     endpoint,
@@ -374,7 +353,10 @@ export function createHomeFeed({ area, fetchRemote, endpoint = HOME_FEED_ENDPOIN
       }
       const parsed = response?.ok ? parseHomeFeedText(response.text) : null;
       if (parsed) {
-        await area.set({ [key]: { text: response.text } });
+        if (response.text !== cachedText) {
+          await area.set({ [key]: { text: response.text } });
+          cachedText = response.text;
+        }
         return parsed;
       }
       return readCache();

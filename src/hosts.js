@@ -1,52 +1,21 @@
-// Origins t3+ talks to. This file is the single source of truth: `build.mjs`
-// copies these lists into dist/manifest.json.
-//
-// HOST_MATCHES: pages the content script runs on.
-// - https://app.t3.codes/* is the official hosted T3 Code web client.
-// To add a self-hosted T3 web origin, append its match pattern here, e.g.
-// "https://t3.example.ts.net/*", then run `npm run build` and reload the
-// extension. Never use "<all_urls>": t3+ must only see T3 pages.
-export const HOST_MATCHES = Object.freeze(["https://app.t3.codes/*"]);
+// Every URL t3+ requests, derived from src/personal.js. The background worker
+// fetches only these; manifest.json must grant their origins (checked by
+// test/manifest.test.js). An empty base leaves its endpoints empty, and t3+
+// makes no request for them.
+import { FEED_BASE, IMMICH, TASKS_BASE } from "./personal.js";
 
-// FEED_BASE: the folder URL the three optional JSON feeds are read from
-// (t3plus.json, t3plus-bots.json, t3plus-home.json). The build sets it from
-// T3PLUS_FEED_BASE or t3plus.local.json (see README, "Feeds"). Left unset, it is
-// a placeholder on the reserved .invalid domain and t3+ fetches nothing.
-/* global __T3PLUS_FEED_BASE__ */
-export const DEFAULT_FEED_BASE = "https://feeds.t3plus.invalid/";
-const injected = typeof __T3PLUS_FEED_BASE__ === "string" ? __T3PLUS_FEED_BASE__ : "";
-export const FEED_BASE = injected || DEFAULT_FEED_BASE;
-export const FEEDS_CONFIGURED = FEED_BASE !== DEFAULT_FEED_BASE;
+const under = (base, path) => (base ? `${base}${path}` : "");
 
-/** The exact feed URLs under a base folder URL. */
-export function feedEndpoints(base = FEED_BASE) {
-  const root = base.endsWith("/") ? base : `${base}/`;
-  return {
-    // The read-only, server-owned t3plus.json (profiles and bot marker). Each
-    // URL is an exact-path host permission, so the extension can read these
-    // files and nothing else on the host. Fetched by the background worker,
-    // because a plain file share sends no CORS headers.
-    config: [`${root}t3plus.json`],
-    // t3plus-bots.json: the latest message of each bot thread (server/publish_bot_feed.py).
-    bots: `${root}t3plus-bots.json`,
-    // t3plus-home.json: pools, activity and usage for the home widgets (server/publish_home.py).
-    home: `${root}t3plus-home.json`,
-  };
-}
+/** Read-only, server-owned feeds. A plain file share sends no CORS headers, so the worker fetches them. */
+export const CONFIG_ENDPOINT = under(FEED_BASE, "t3plus.json");
+export const BOT_FEED_ENDPOINT = under(FEED_BASE, "t3plus-bots.json");
+export const HOME_FEED_ENDPOINT = under(FEED_BASE, "t3plus-home.json");
 
-const endpoints = feedEndpoints();
-export const CONFIG_ENDPOINTS = Object.freeze(endpoints.config);
-export const BOT_FEED_ENDPOINT = endpoints.bots;
-export const HOME_FEED_ENDPOINT = endpoints.home;
+export const TASKS_API_ENDPOINT = under(TASKS_BASE, "api/tasks");
+export const TASKS_BOARD_ENDPOINT = under(TASKS_BASE, "api/tasks/board");
+export const TASKS_SESSION_ENDPOINT = under(TASKS_BASE, "api/tasks/session");
+export const TASKS_PAGE_ENDPOINT = under(TASKS_BASE, "tasks");
+export const CALENDAR_AGENDA_ENDPOINT = under(TASKS_BASE, "api/tasks/calendar/agenda");
 
-/** Every URL the background worker may fetch. */
-export const FETCH_ENDPOINTS = Object.freeze([...CONFIG_ENDPOINTS, BOT_FEED_ENDPOINT, HOME_FEED_ENDPOINT]);
-
-/** Host permissions for the manifest: exactly the fetchable URLs. */
-export const CONFIG_HOST_PERMISSIONS = Object.freeze([...FETCH_ENDPOINTS]);
-
-/** Host permissions for a given feed base (the build uses the configured one). */
-export function hostPermissionsFor(base) {
-  const e = feedEndpoints(base);
-  return [...e.config, e.bots, e.home];
-}
+/** The anonymous feeds the worker's fetch bridge serves. Task, calendar and photo calls have their own bridges. */
+export const FETCH_ENDPOINTS = Object.freeze([CONFIG_ENDPOINT, BOT_FEED_ENDPOINT, HOME_FEED_ENDPOINT, IMMICH.feedEndpoint].filter(Boolean));

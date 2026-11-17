@@ -10,7 +10,7 @@ import { createBuilder } from "./dom.js";
 // pointer-events: none and aria-hidden (the same numbers are in each card's
 // aria-label), and is driven by pointer events on t3+'s own cards only.
 
-export const TOOLTIP_ID = "t3plus-tip";
+const TOOLTIP_ID = "t3plus-tip";
 const GAP = 6;
 const EDGE = 8;
 

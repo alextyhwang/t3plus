@@ -1,5 +1,4 @@
-import { HOVER_CARD_TITLE } from "./bots.js";
-import { T3PLUS, T3_SELECTORS } from "./config.js";
+import { SIDEBAR_ROW_PREFIX, T3PLUS, T3_SELECTORS } from "./config.js";
 import { createNameBook, fakeCode, fakeCommand, fakeIdentifier, fakeProse, isNeutral, isPlainBranch, projectInitials } from "./demoText.js";
 
 // Screenshot mode: a read-only cover over T3's visible text. Thread titles,
@@ -62,7 +61,6 @@ export function createDemoMode(doc) {
     return kind ? named(kind)(value) : value;
   };
 
-  // ---- Project letter badges ----
   function badgeInfo(src) {
     if (badgeCache.has(src)) return badgeCache.get(src);
     let info = null;
@@ -96,12 +94,11 @@ export function createDemoMode(doc) {
     }
   }
 
-  // ---- Regions ----
   function sidebar(inner) {
     if (!inner) return;
-    for (const row of inner.querySelectorAll("[data-sidebar-row]")) {
-      const key = row.getAttribute("data-sidebar-row") ?? "";
-      if (key.startsWith("folder:")) {
+    for (const row of inner.querySelectorAll(T3_SELECTORS.sidebarRow)) {
+      const key = row.getAttribute(T3_SELECTORS.sidebarRowAttr) ?? "";
+      if (key.startsWith(SIDEBAR_ROW_PREFIX.folder)) {
         let project = "";
         eachText(row, (n) => {
           swap(n, named("project"));
@@ -113,10 +110,10 @@ export function createDemoMode(doc) {
       if (row.getAttribute("role") !== "button") continue;
       // Every row shape (card, slim, folder) shows its title in an aria-hidden [dir] span.
       if (!row.hasAttribute(T3PLUS.botAttr)) eachText(row.querySelector('span[aria-hidden="true"][dir]'), (n) => swap(n, named("title")));
-      const body = row.querySelector(":scope > .relative.z-10");
+      const body = row.querySelector(T3_SELECTORS.rowBody);
       if (!body) continue;
-      const top = body.querySelector(":scope > .h-5");
-      const projectEl = top?.querySelector(":scope > .truncate");
+      const top = body.querySelector(T3_SELECTORS.rowTopLine);
+      const projectEl = top?.querySelector(T3_SELECTORS.rowProject);
       eachText(projectEl, (n) => swap(n, named("project")));
       const project = projectEl?.textContent ?? "";
       coverBadge(top?.querySelector(":scope > img, :scope > span > img"), project);
@@ -134,11 +131,11 @@ export function createDemoMode(doc) {
   }
 
   function header() {
-    const nav = doc.querySelector('nav[aria-label="Thread breadcrumb"]');
+    const nav = doc.querySelector(`nav${T3_SELECTORS.threadBreadcrumb}`);
     if (!nav) return;
     const items = [...nav.querySelectorAll("li")].filter((li) => li.getAttribute("aria-hidden") !== "true");
     items.forEach((li, index) => {
-      if (li.querySelector("[data-t3plus-bot-breadcrumb]")) return;
+      if (li.querySelector(`[${T3PLUS.botBreadcrumbAttr}]`)) return;
       const label = li.querySelector('[data-slot="workspace-breadcrumb-text"]');
       eachText(label ?? li, (n) => swap(n, (v) => (v.trim() === "New thread" ? v : named(index === 0 ? "project" : "title")(v))));
       if (index === 0) {
@@ -149,16 +146,16 @@ export function createDemoMode(doc) {
   }
 
   function hero() {
-    for (const el of doc.querySelectorAll(".group\\/draft-hero [data-draft-project-trigger], .group\\/draft-hero .font-medium")) {
+    for (const el of doc.querySelectorAll(`.group\\/draft-hero ${T3_SELECTORS.draftProjectTrigger}, .group\\/draft-hero .font-medium`)) {
       eachText(el, (n) => swap(n, named("project")));
     }
   }
 
   function popups() {
-    for (const popup of doc.querySelectorAll('[data-slot="tooltip-popup"]')) {
-      const title = popup.querySelector(HOVER_CARD_TITLE);
+    for (const popup of doc.querySelectorAll(T3_SELECTORS.tooltipPopup)) {
+      const title = popup.querySelector(T3_SELECTORS.hoverCardTitle);
       if (!title) continue; // only T3's thread hover card
-      if (!title.hasAttribute("data-t3plus-bot-hover")) eachText(title, (n) => swap(n, named("title")));
+      if (!title.hasAttribute(T3PLUS.botHoverAttr)) eachText(title, (n) => swap(n, named("title")));
       eachText(popup, (n) => {
         if (title.contains(n)) return;
         // Known labels keep their stand-in; a lone word with no digits is the machine.
@@ -199,7 +196,7 @@ export function createDemoMode(doc) {
   }
 
   function composer() {
-    for (const area of doc.querySelectorAll('[data-chat-composer-overlay="true"]')) {
+    for (const area of doc.querySelectorAll(T3_SELECTORS.composerOverlay)) {
       runContexts(area);
       eachText(area, (n) => swap(n, knownOr(null)));
     }
@@ -259,7 +256,6 @@ export function createDemoMode(doc) {
     label(kind, real) {
       return book.fake(kind, real);
     },
-    /** Puts every real text and badge back. */
     restore() {
       active = false;
       for (const node of touched) {

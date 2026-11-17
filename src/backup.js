@@ -32,10 +32,18 @@ const fits = (value) => {
   }
 };
 
+const sameJson = (a, b) => {
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+};
+
 /** The page-storage copy (see 3. above). */
 export const PAGE_BACKUP_KEY = "t3plus.backup.v1";
 
-export function readPageBackup(page) {
+function readPageBackup(page) {
   try {
     const parsed = JSON.parse(page?.getItem(PAGE_BACKUP_KEY) ?? "null");
     return parsed && parsed.app === "t3plus" && parsed.data && typeof parsed.data === "object" ? parsed.data : null;
@@ -46,6 +54,8 @@ export function readPageBackup(page) {
 
 function writePageBackup(page, data) {
   if (!page) return;
+  // Every page load pushes the current values again: an unchanged copy is not rewritten.
+  if (sameJson(readPageBackup(page), data)) return;
   try {
     page.setItem(PAGE_BACKUP_KEY, JSON.stringify({ app: "t3plus", savedAt: new Date().toISOString(), data }));
   } catch {
@@ -90,6 +100,8 @@ export async function restoreFromSync(local, sync) {
 /**
  * Keeps Chrome Sync in step with local storage: pushes the current values once,
  * then every change to a synced key (debounced, so slider drags write once).
+ * Only values that differ from what Sync holds are written, so opening T3
+ * (every tab, every page load) costs Sync nothing when nothing changed.
  * @returns {() => void} stop
  */
 export function mirrorToSync({ local, sync, page = null, changedEvent, setTimer = setTimeout, clearTimer = clearTimeout, delayMs = 1500 }) {
@@ -104,13 +116,21 @@ export function mirrorToSync({ local, sync, page = null, changedEvent, setTimer 
       pending.clear();
       return;
     }
+    const batch = [...pending];
+    pending.clear();
+    let held = {};
+    try {
+      held = (await sync.get(batch.map(([key]) => key))) ?? {};
+    } catch {
+      held = {};
+    }
     const set = {};
     const remove = [];
-    for (const [key, value] of pending) {
-      if (value === undefined) remove.push(key);
-      else if (fits(value)) set[key] = value;
+    for (const [key, value] of batch) {
+      if (value === undefined) {
+        if (held[key] !== undefined) remove.push(key);
+      } else if (fits(value) && !sameJson(held[key], value)) set[key] = value;
     }
-    pending.clear();
     try {
       if (Object.keys(set).length) await sync.set(set);
       if (remove.length) await sync.remove(remove);

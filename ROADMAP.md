@@ -129,6 +129,30 @@
 - [x] Public-ready repo: README with screenshots, feed folder set at build time,
       portable feed publishers, neutral fixtures.
 
+**v0.19**:
+
+- [x] Lighter on the browser: animated bot faces as APNGs, one glow render per load, no
+      DOM checks in hidden tabs, no rewrites of unchanged feeds or Sync
+      (`docs/notes/PERFORMANCE.md`, `npm run perf`).
+- [x] Restructured source: one setup file (`src/personal.js`) that every endpoint is
+      derived from, a static `manifest.json`, draft-details widgets out of `app.js`.
+- [x] Bot workload summaries and next scheduled update; wallpapers; floating browser
+      preview modes; optional Tasks, Calendar and Immich in new-thread details.
+
+**Next (unreleased)**:
+
+- [x] Assistant group (`ASSISTANT_GROUP` in `src/personal.js`): bots on top (no
+      header), the router bot with its project's inbox threads under it (one line,
+      sub-thread counts), then every other bot; T3's inbox follows directly, with no
+      header (the Normal header was removed in 0.18.4); T3's Working / Snoozed /
+      Settled keep their threads, marked with the router bot's name. Worker threads
+      (configured title prefixes) stay in the inbox. T3's rows are ordered with CSS
+      `order`; the bot is drawn from the feed only when T3 renders no row.
+- [x] Performance pass on the real client: Settings panel drawn only on screen, one CPU
+      canvas for bot faces, dither charts repaint only on pixel-size changes.
+- [ ] Maybe: animate the glow center on the glow layers instead of `<html>` (each frame
+      of its 150 ms slide restyles the page); costs the slide on a pane T3 remounts.
+
 ## v2 candidates (not built)
 
 Each needs its own design pass, especially anything that would read T3 server state.
@@ -139,6 +163,8 @@ Each needs its own design pass, especially anything that would read T3 server st
 - **Profile matching by project name** for pinned cards outside folders (today: explicit
   `threads`).
 - **Bot extras.** Unread badges, only if they fit inside T3's existing row.
+- **More groups.** The Assistant group is one hardcoded bot; other bots and projects,
+  configured from `t3plus.json`, once the one group has proven itself.
 - **From the upstream PR scan (small CSS, not built yet).** Menu/select/dialog fade-in
   (#26708, #28699); hide the thread minimap (#32900); fade messages behind the glass
   composer footer (#30064, #32683); visible dark scrollbar thumb (#30031); pinned-row
@@ -158,3 +184,7 @@ Each needs its own design pass, especially anything that would read T3 server st
 - No continuously repainting effects. Effects never intercept pointer events.
 - Minimal overlay: decorate T3's own elements in place; the sidebar gets at most the one
   profile strip. Screenshots come from the T3-shaped harness and must still read as T3.
+  One agreed exception: the Assistant group may reorder T3's rows visually (CSS
+  `order`, never DOM moves), name the router bot's threads in
+  T3's shelves (its name for the project name), and draw the bot's row when T3 is not
+  rendering it.

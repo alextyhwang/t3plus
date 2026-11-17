@@ -1,5 +1,6 @@
-import { NON_THREAD_ROUTE_SEGMENTS, STORAGE_KEYS } from "./config.js";
-import { subscribeKey } from "./settings.js";
+import { STORAGE_KEYS } from "./config.js";
+import { createKeyStore } from "./storage.js";
+import { THREAD_KEY } from "./threadKey.js";
 
 // Profile viewing state: which tab is active and the last thread opened under
 // each tab. Viewing choices only, kept in chrome.storage.local (approved by the
@@ -7,24 +8,12 @@ import { subscribeKey } from "./settings.js";
 
 export const ALL_PROFILE_ID = "all";
 
-/** "/<environmentId>/<threadId>" -> "<environmentId>:<threadId>", else null. */
-export function threadKeyFromPath(pathname) {
-  const parts = String(pathname ?? "").split("/").filter(Boolean);
-  if (parts.length !== 2 || NON_THREAD_ROUTE_SEGMENTS.includes(parts[0])) return null;
-  try {
-    const [environmentId, threadId] = parts.map(decodeURIComponent);
-    return environmentId && threadId ? `${environmentId}:${threadId}` : null;
-  } catch {
-    return null;
-  }
-}
-
 export function normalizeProfileView(raw) {
   const value = raw && typeof raw === "object" ? raw : {};
   const lastThreadByProfile = {};
   if (value.lastThreadByProfile && typeof value.lastThreadByProfile === "object") {
     for (const [id, key] of Object.entries(value.lastThreadByProfile)) {
-      if (typeof key === "string" && key.includes(":") && key.length < 300) lastThreadByProfile[id] = key;
+      if (typeof key === "string" && THREAD_KEY.test(key) && key.length < 300) lastThreadByProfile[id] = key;
     }
   }
   return {
@@ -55,18 +44,5 @@ export function threadToRestore({ profileId, view, currentThreadKey, isMember, i
 }
 
 export function createProfileViewStore(area, changedEvent) {
-  const key = STORAGE_KEYS.profileView;
-  return {
-    async load() {
-      return normalizeProfileView((await area.get(key))?.[key]);
-    },
-    async save(view) {
-      const normalized = normalizeProfileView(view);
-      await area.set({ [key]: normalized });
-      return normalized;
-    },
-    subscribe(listener) {
-      return subscribeKey(changedEvent, key, (value) => listener(normalizeProfileView(value)));
-    },
-  };
+  return createKeyStore(area, changedEvent, STORAGE_KEYS.profileView, normalizeProfileView);
 }

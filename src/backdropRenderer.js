@@ -1,6 +1,6 @@
-import { DITHER_STYLES, ditherRgbInPlace, GLOW_SHAPE, glowPixelArt, glowSpriteSpan } from "./ditherMath.js";
-
-export { DITHER_STYLES };
+import { DITHER_CELL_CSS, DITHER_STYLES } from "./config.js";
+import { ditherRgbInPlace, GLOW_SHAPE, glowPixelArt, glowSpriteSpan } from "./ditherMath.js";
+import { imageScrim } from "./gradient.js";
 
 // Real ordered dither for the background, in the same pixel-art style as the
 // bot avatars. The glow (or image) is drawn once into a small canvas at
@@ -18,18 +18,11 @@ export { DITHER_STYLES };
 // and for the glow (a sprite, see placeGlow):
 //   --t3plus-dither-w / -h          the sprite's CSS size
 //   --t3plus-wide-image / -w / -h   the wider sprite shown on the new-thread page
-//   --t3plus-glow-x / -y            the glow center in the pane (animated)
+//   --t3plus-glow-x / -y            the glow center in the pane
 //   data-t3plus-glow-wide           present while the wide sprite is the one shown
 
 /** How much wider the glow spreads on the new-thread page than in a thread. */
-export const HERO_SPREAD = 1.15;
-
-/**
- * Dither cell size in CSS px. "fine" matches one pixel of a 32 px bot avatar
- * (32 / 24 px). Sizes are in CSS px, not device px: on a 2x Retina display a
- * 2-device-pixel cell was only 1 CSS px and the dither vanished.
- */
-export const DITHER_CELL_CSS = Object.freeze({ fine: 4 / 3, medium: 2, large: 3 });
+const HERO_SPREAD = 1.15;
 /** Upper bound on rendered cells, so a huge window never costs more than a few ms. */
 const MAX_CELLS = 1_200_000;
 
@@ -52,7 +45,7 @@ export function createBackdropRenderer({ win, doc, delayMs = 120 }) {
   let generation = 0;
   const imageCache = new Map(); // src -> Promise<HTMLImageElement>
 
-  // ---- Colors: resolve any CSS color (oklch, var(), color-mix) to sRGB bytes ----
+  // Resolves any CSS color (oklch, var(), color-mix) to sRGB bytes by painting it.
   let probeCanvas = null;
   const rgbCache = new Map(); // css color -> [r, g, b]
   function toRgb(cssColor, fallback) {
@@ -97,20 +90,13 @@ export function createBackdropRenderer({ win, doc, delayMs = 120 }) {
     return value;
   }
 
-  // Glow center: registered custom properties on <html> (content.css
-  // @property), so a change animates there and every pane, even one T3 just
-  // remounted, reads the in-between values. The first placement is instant.
-  let placed = false;
+  // Update the shared center immediately, including on remounted panes.
   const setVar = (name, value) => {
     if (root.style.getPropertyValue(name) !== value) root.style.setProperty(name, value);
   };
   function placeGlow(x, y) {
     setVar("--t3plus-glow-x", x);
     setVar("--t3plus-glow-y", y);
-    if (!placed) {
-      placed = true;
-      (win.requestAnimationFrame ?? ((f) => win.setTimeout(f, 16)))(() => root.setAttribute("data-t3plus-glow-ready", ""));
-    }
   }
 
   function clear() {
@@ -124,8 +110,6 @@ export function createBackdropRenderer({ win, doc, delayMs = 120 }) {
     for (const name of ["--t3plus-dither-image", "--t3plus-dither-size", "--t3plus-dither-w", "--t3plus-dither-h", "--t3plus-wide-image", "--t3plus-wide-w", "--t3plus-wide-h", "--t3plus-glow-x", "--t3plus-glow-y"]) {
       root.style.removeProperty(name);
     }
-    root.removeAttribute("data-t3plus-glow-ready");
-    placed = false;
     if (url) win.URL.revokeObjectURL(url);
     if (wideUrl) win.URL.revokeObjectURL(wideUrl);
     url = null;
@@ -180,7 +164,8 @@ export function createBackdropRenderer({ win, doc, delayMs = 120 }) {
     const canvas = doc.createElement("canvas");
     canvas.width = cols;
     canvas.height = rows;
-    const ctx = canvas.getContext("2d");
+    // On the CPU: a GPU canvas would be read back by toBlob on the main thread.
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) throw new Error("no 2d canvas");
     const pixels = glowPixelArt({ width: cols, height: rows, rgb: job.accent, intensity: job.intensity, style: job.style, sprite: job.sprite });
     ctx.putImageData(new win.ImageData(pixels, cols, rows), 0, 0);
@@ -264,7 +249,7 @@ export function createBackdropRenderer({ win, doc, delayMs = 120 }) {
     if (mode === "half-circle") {
       // The glow is a sprite (just its halo's box) that CSS moves: where it sits
       // (composer x, bottom edge in a thread, pane center on the new-thread page)
-      // is two animated lengths, not part of the render.
+      // is two CSS lengths, not part of the render.
       // Two sprites with the same cells: the normal one and a wider one for
       // the new-thread page. Even cell counts keep each sprite's half size a
       // whole number of cells, so centering it never splits a pixel.
@@ -274,7 +259,7 @@ export function createBackdropRenderer({ win, doc, delayMs = 120 }) {
       const near = { cols: even(cols), rows: even(rows) };
       const wideCols = even(Math.round(near.cols * HERO_SPREAD));
       const wideRows = even(Math.round(near.rows * HERO_SPREAD));
-      job = { mode, style, cell, ...near, wideCols, wideRows, sprite, paneW: Math.round(rect.width), paneH: Math.round(rect.height) };
+      job = { mode, style, cell, ...near, wideCols, wideRows, sprite };
       // Snap the center to the cell grid's device pixels.
       const snap = (v) => `${(Math.round(v * dpr) / dpr).toFixed(2)}px`;
       placeGlow(snap(cx * rect.width), snap((cy ?? 1 + GLOW_SHAPE.drop) * rect.height));
@@ -290,10 +275,14 @@ export function createBackdropRenderer({ win, doc, delayMs = 120 }) {
       if (!imageSrc) return;
       job.imageSrc = imageSrc;
       job.background = toRgb(computedColor("var(--background, #0a0a0a)", host), "#0a0a0a");
-      Object.assign(job, { scrimTop: 1 - i * 0.55, scrimBottom: 1 - i * 0.9 });
+      const scrim = imageScrim(i);
+      Object.assign(job, { scrimTop: 1 - scrim.top, scrimBottom: 1 - scrim.bottom });
     }
     if (!job.accent && !job.background) return;
-    const key = JSON.stringify({ ...job, imageSrc: imageSrc ? `${imageSrc.length}:${imageSrc.slice(0, 64)}:${imageSrc.slice(-64)}` : null });
+    // The key holds only what the render reads: the glow never reads the image
+    // (and the first check of a page runs before its URL is known), so a page
+    // load renders it once, not twice.
+    const key = JSON.stringify({ ...job, imageSrc: job.imageSrc ? `${imageSrc.length}:${imageSrc.slice(0, 64)}:${imageSrc.slice(-64)}` : null });
     if (key === lastKey || key === scheduledKey) return;
     scheduledKey = key;
     if (timer) win.clearTimeout(timer);

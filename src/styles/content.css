@@ -22,6 +22,141 @@
  * attachments, or buttons. Nothing animates.
  */
 
+/* ---------- Floating browser presentation ----------
+ * T3 hooks in src/config.js: data-preview-mini-player / -resize.
+ * Geometry is measured by floatingPreview.js. The browser, its event handlers,
+ * and the native panel/pop-out/close buttons stay in their original DOM slots.
+ * !important overrides T3's React inline frame and pill geometry only.
+ */
+[data-t3plus-preview-toolbar] {
+  display: none;
+}
+
+[data-t3plus-floating] {
+  position: absolute !important;
+  left: var(--t3plus-preview-x) !important;
+  top: var(--t3plus-preview-y) !important;
+  width: var(--t3plus-preview-width) !important;
+  height: var(--t3plus-preview-height) !important;
+  border-radius: 0 0 12px 12px !important;
+  z-index: 30;
+  /* Size changes must reach the stream's own ResizeObserver immediately. */
+  transition: none !important;
+  animation: none;
+}
+
+[data-t3plus-floating] > [data-preview-mini-player-resize] {
+  pointer-events: none !important;
+  cursor: default !important;
+}
+
+[data-t3plus-floating] > [data-t3plus-preview-toolbar] {
+  position: absolute;
+  inset: -36px 0 auto;
+  z-index: 51;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 calc(var(--t3plus-preview-controls-width) + 4px) 0 10px;
+  border: 1px solid var(--border, #888);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: var(--popover, var(--background, Canvas));
+  color: var(--popover-foreground, var(--foreground, CanvasText));
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1;
+  pointer-events: auto;
+}
+
+.t3plus-preview-caption {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground, inherit);
+}
+
+.t3plus-preview-mode {
+  height: 28px;
+  padding: 0 8px;
+  flex-shrink: 0;
+  border: 1px solid var(--border, #888);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+[data-t3plus-floating] > [data-t3plus-preview-drag] {
+  top: -34px !important;
+  right: 4px !important;
+  width: max-content !important;
+  height: 32px !important;
+  margin: 0 !important;
+  z-index: 52 !important;
+  cursor: default !important;
+  touch-action: auto !important;
+}
+
+/* Keep the native recording status in the accessibility tree. The control
+ * row also includes T3's visible recording badge. */
+[data-t3plus-preview-drag] > :not([data-t3plus-preview-controls]) {
+  position: absolute !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+[data-t3plus-preview-drag] > [data-t3plus-preview-controls] {
+  position: static !important;
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 2px;
+  box-sizing: border-box;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  cursor: default !important;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  transition: none !important;
+}
+
+[data-t3plus-preview-controls] button {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.t3plus-preview-mode:hover {
+  background: var(--accent, ButtonFace);
+}
+
+.t3plus-preview-mode:focus-visible,
+[data-t3plus-preview-controls] button:focus-visible {
+  outline: 2px solid var(--ring, Highlight);
+  outline-offset: 1px;
+}
+
+[data-t3plus-preview-narrow] .t3plus-preview-caption {
+  display: none;
+}
+
+/* With a tall composer / on-screen keyboard, keep the bar usable without
+ * presenting an unreadable sliver of the browser. It remains mounted. */
+[data-t3plus-preview-squeezed] > :not([data-t3plus-preview-toolbar]):not([data-t3plus-preview-drag]) {
+  visibility: hidden;
+}
+
 /* ---------- Backdrop layer ---------- */
 
 /* isolation keeps the z-index:-1 layer above the pane's own opaque background
@@ -110,27 +245,8 @@ html[data-t3plus-dithered="image"] .t3plus-preview[data-backdrop="image"] .t3plu
   image-rendering: pixelated;
 }
 
-/* The pixel glow is a sprite centered on two animated lengths
-   (backdropRenderer.js): switching between the new-thread page and a thread,
-   or the composer moving, slides it instead of re-rendering. */
-@property --t3plus-glow-x {
-  syntax: "<length>";
-  inherits: true;
-  initial-value: 0px;
-}
-
-@property --t3plus-glow-y {
-  syntax: "<length>";
-  inherits: true;
-  initial-value: 0px;
-}
-
-html[data-t3plus-glow-ready] {
-  transition:
-    --t3plus-glow-x 150ms cubic-bezier(0.22, 1, 0.36, 1),
-    --t3plus-glow-y 150ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
+/* The pixel glow is a sprite centered on the composer. Placement changes
+   immediately, including when T3 switches between new and saved threads. */
 html[data-t3plus-dithered="half-circle"][data-t3plus-backdrop="half-circle"] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::before,
 html[data-t3plus-dithered="half-circle"] .t3plus-preview[data-backdrop="half-circle"] .t3plus-preview-pane::before {
   background-image: var(--t3plus-dither-image) !important;
@@ -141,54 +257,12 @@ html[data-t3plus-dithered="half-circle"] .t3plus-preview[data-backdrop="half-cir
   image-rendering: pixelated;
 }
 
-/* New-thread page: a wider glow. The pane holds both sprites, the normal one
-   on ::before and the wide one on ::after, and crossfades between them while
-   each scales around the glow center toward the other's size. Only opacity
-   and transform change, both run on the compositor, and at rest each layer
-   is at scale 1, so its pixels are crisp. */
-html[data-t3plus-dithered="half-circle"][data-t3plus-backdrop="half-circle"] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background-image: var(--t3plus-wide-image);
-  background-size: var(--t3plus-wide-w) var(--t3plus-wide-h);
-  background-position: calc(var(--t3plus-glow-x) - var(--t3plus-wide-w) / 2) calc(var(--t3plus-glow-y) - var(--t3plus-wide-h) / 2);
-  background-repeat: no-repeat;
-  image-rendering: pixelated;
-  opacity: 0;
-  /* 1 / HERO_SPREAD (backdropRenderer.js): the size of the normal glow. */
-  transform: scale(0.87);
-}
-html[data-t3plus-dithered="half-circle"][data-t3plus-backdrop="half-circle"] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::before {
-  transform-origin: var(--t3plus-glow-x) var(--t3plus-glow-y);
-}
-html[data-t3plus-dithered="half-circle"][data-t3plus-backdrop="half-circle"] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::after {
-  transform-origin: var(--t3plus-glow-x) var(--t3plus-glow-y);
-}
-html[data-t3plus-glow-ready][data-t3plus-dithered="half-circle"] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::before,
-html[data-t3plus-glow-ready][data-t3plus-dithered="half-circle"] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::after {
-  transition:
-    opacity 260ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
-}
+/* New-thread page: swap in the wider sprite at its native size. A single
+   layer avoids a slide, scale or crossfade during frequent navigation. */
 html[data-t3plus-glow-wide][data-t3plus-dithered="half-circle"][data-t3plus-backdrop="half-circle"] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::before {
-  opacity: 0;
-  /* HERO_SPREAD: the size of the wide glow. */
-  transform: scale(1.15);
-}
-html[data-t3plus-glow-wide][data-t3plus-dithered="half-circle"][data-t3plus-backdrop="half-circle"] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::after {
-  opacity: 1;
-  transform: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  html[data-t3plus-glow-ready],
-  html[data-t3plus-glow-ready] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::before,
-  html[data-t3plus-glow-ready] :is([data-workspace-area="conversation"], [data-t3plus-backdrop-host])::after {
-    transition: none !important;
-  }
+  background-image: var(--t3plus-wide-image) !important;
+  background-size: var(--t3plus-wide-w) var(--t3plus-wide-h) !important;
+  background-position: calc(var(--t3plus-glow-x) - var(--t3plus-wide-w) / 2) calc(var(--t3plus-glow-y) - var(--t3plus-wide-h) / 2) !important;
 }
 
 /* ---------- Glass composer ---------- */
@@ -215,6 +289,7 @@ html[data-t3plus-glass] :is([data-chat-composer-surface="true"], [data-t3plus-su
    card stays nearly opaque so text over a busy image remains readable. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   html[data-t3plus-glass] [data-slot="composer-shell"],
+  html[data-t3plus-glass] :is(.t3plus-w, [data-thread-details-card]),
   html[data-t3plus-glass] :is([data-chat-composer-surface="true"], [data-t3plus-surface]),
   .t3plus-preview .t3plus-preview-card {
     --t3plus-glass-opacity: 94%;
@@ -223,6 +298,7 @@ html[data-t3plus-glass] :is([data-chat-composer-surface="true"], [data-t3plus-su
 
 @media (prefers-reduced-transparency: reduce) {
   html[data-t3plus-glass] [data-slot="composer-shell"],
+  html[data-t3plus-glass] :is(.t3plus-w, [data-thread-details-card]),
   html[data-t3plus-glass] :is([data-chat-composer-surface="true"], [data-t3plus-surface]),
   .t3plus-preview .t3plus-preview-card {
     --t3plus-glass-opacity: 96%;
@@ -260,7 +336,7 @@ html[data-t3plus-glass] :is([data-chat-composer-surface="true"], [data-t3plus-su
 /* ---------- Sidebar: profile bar ---------- */
 
 /* One compact row under T3's search group, same horizontal inset; about
-   1.625rem tall. It is the only element t3+ adds to the sidebar. */
+   1.625rem tall. */
 .t3plus-profilebar {
   display: flex;
   flex-direction: column;
@@ -399,10 +475,10 @@ html[data-t3plus-glass] :is([data-chat-composer-surface="true"], [data-t3plus-su
 
 /* A bot row reads like a chat-list entry (Grok-style):
      [avatar]  Bot name ................ time/status
-               Latest message, clamped to the lines
+               Workload or next scheduled update, clamped to the lines
                T3's row already has
    T3 still owns the row and its height: t3+ only hides the project/pin,
-   branch and provider icons, swaps the title text for the latest message,
+   branch and provider icons, swaps the title text for its workload,
    and adds one avatar element. */
 [data-t3plus-bot] {
   position: relative;
@@ -412,7 +488,14 @@ html[data-t3plus-glass] :is([data-chat-composer-surface="true"], [data-t3plus-su
    with a branch line is exactly as tall as one without. */
 [data-t3plus-bot-body] {
   height: auto !important;
-  padding-left: 3.125rem !important;
+  padding-left: 2.9375rem !important;
+}
+
+/* Match the 2px gap of title-first thread rows, including the Assistant's
+   stand-in when T3 has no native row. Override T3's mt-1 on the second line. */
+[data-t3plus-bot-title-line],
+.t3plus-standin-bot .t3plus-standin-body > .t3plus-bot-summary {
+  margin-top: 0.125rem !important;
 }
 
 [data-t3plus-bot-hide] {
@@ -465,7 +548,7 @@ html[data-t3plus-glass] :is([data-chat-composer-surface="true"], [data-t3plus-su
   color: var(--foreground);
 }
 
-/* Line 2: the latest message, one line, truncated. */
+/* Line 2: workload or next scheduled update, one line, truncated. */
 [data-t3plus-bot-title] {
   /* The span still holds T3's raw title (with the marker): hide its text and
      show the preview from the attribute. T3's sr-only title is untouched. */
@@ -494,7 +577,7 @@ html[data-t3plus-glass] :is([data-chat-composer-surface="true"], [data-t3plus-su
 .t3plus-bot-avatar {
   position: absolute;
   z-index: 20;
-  left: 0.625rem;
+  left: 0.4375rem;
   top: 50%;
   width: 2rem;
   height: 2rem;
@@ -542,21 +625,30 @@ html[data-t3plus-glass] :is([data-chat-composer-surface="true"], [data-t3plus-su
   }
 }
 
+/* The same frames as an animated PNG (data-animated="image", see apng.js):
+   Chrome plays it off the main thread and redraws only when the frame
+   changes, where the keyframes above recalculate style every frame. Reduced
+   motion and forced colors keep the rules above. */
+@media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
+  .t3plus-bot-avatar[data-animated="image"]::before,
+  [data-t3plus-bot-breadcrumb][data-animated="image"]::before,
+  [data-t3plus-bot-hover][data-animated="image"]::before {
+    animation: none;
+    background-image: var(--t3plus-bot-motion);
+    background-size: 100% 100%;
+  }
+}
+
 .t3plus-bot-avatar::before {
   content: "";
   position: absolute;
   inset: 0;
 }
 
-/* One status signal per job: the face shows the state (animated while working,
-   wide eyes when it needs you, half-closed while waiting, happy when done, X on
-   failure, eyes closed when idle) and T3's own colored label and time ("Working
-   4m", "Approval", "Done 1h") stay in the status slot. T3's status icon (the
-   spinner etc.) is hidden on bot rows, since the face already plays that part.
-   Hover buttons in the slot (Settle, Snooze) keep their icons. */
-[data-t3plus-bot-status] svg:not(button svg) {
-  display: none !important;
-}
+/* The face shows the state (animated while working, wide eyes when it needs
+   you, half-closed while waiting, happy when done, X on failure, eyes closed
+   when idle); T3's status slot shows its icon and time like every other row
+   (see "Status: icon and time"). */
 
 /* The breadcrumb keeps its repository crumb but replaces the raw marker with
    the same bot avatar and clean display label. */
@@ -622,6 +714,262 @@ html[data-t3plus-glass] :is([data-chat-composer-surface="true"], [data-t3plus-su
   [data-t3plus-outside] {
     outline-color: CanvasText;
   }
+}
+
+/* ---------- Sidebar: Assistant group (src/assistantGroup.js) ---------- */
+
+/* T3's thread list is a flex column. Bot rows are ordered first with `order`.
+   T3's own items keep order 0 and T3's sequence, so the inbox follows the bots
+   and T3's Working / Snoozed / Settled shelves stay below. */
+li[data-t3plus-group] {
+  order: var(--t3plus-group-order, 0);
+}
+
+/* The Assistant's threads sit under it, indented like a folder's rows. */
+li[data-t3plus-group="item"] {
+  padding-inline-start: 0.75rem;
+}
+
+/* Match T3's compact shelf padding on the row body, where its card padding
+   lives. The stand-in uses the same inset when T3 has no row for the bot. */
+li[data-t3plus-group="item"] > [data-sidebar-row][role="button"] > .relative.z-10,
+[data-t3plus-bot-body],
+.t3plus-standin-row {
+  padding-block: 0.375rem !important;
+}
+
+/* Keep the Assistant close to its first visible thread, including the unread
+   rows that remain beneath it while folded. Leave standalone bots unchanged. */
+ul:has(> li[data-t3plus-group="item"]:not([hidden])) > li[data-t3plus-group="header"] {
+  padding-block-end: 0 !important;
+}
+
+.t3plus-icon {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Sub-thread count: a small muted pill at the end of the title (T3's text-2xs). */
+[data-t3plus-subcount] {
+  position: relative;
+  padding-inline-end: 1.875rem !important;
+}
+
+[data-t3plus-subcount]::after {
+  content: attr(data-t3plus-subcount);
+  position: absolute;
+  right: 0;
+  top: 50%;
+  min-width: 1.25rem;
+  height: 1rem;
+  padding: 0 0.3125rem;
+  border-radius: 999px;
+  background: var(--sidebar-row-hover, var(--accent));
+  color: var(--sidebar-muted-foreground, var(--muted-foreground));
+  font-size: 0.6875rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1rem;
+  text-align: center;
+  transform: translateY(-50%);
+}
+
+/* The Assistant's second line: attention first, then running work and open
+   threads, with its fold chevron on the right. Done checks stay on the threads. */
+li[data-t3plus-group="header"] [data-t3plus-bot-title] {
+  display: none !important;
+}
+
+.t3plus-bot-summary {
+  display: flex;
+  height: 1.25rem;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.t3plus-bot-summary-counts {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  line-height: 1.25rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.t3plus-bot-summary-count {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.t3plus-bot-summary-count[data-status="working"] {
+  color: var(--info-foreground, var(--primary));
+}
+.t3plus-bot-summary-count[data-status="attention"] {
+  color: var(--warning-foreground, #d97706);
+}
+.t3plus-bot-summary-count[data-status="failed"] {
+  color: var(--destructive, #ef4444);
+}
+.t3plus-bot-summary-count:is([data-status="open"], [data-status="idle"]) {
+  color: var(--sidebar-muted-foreground, var(--muted-foreground));
+}
+
+/* The chevron: T3's shelf chevron (12px, turned -90deg while folded), its
+   icon flush with the time above it. */
+.t3plus-bot-summary-toggle {
+  display: inline-flex;
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  margin-right: -0.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0.25rem;
+  background: transparent;
+  color: var(--sidebar-muted-foreground, var(--muted-foreground));
+  cursor: pointer;
+}
+
+.t3plus-bot-summary-toggle:hover {
+  background: var(--sidebar-row-hover, var(--accent));
+}
+
+.t3plus-bot-summary-toggle:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--ring, var(--primary)) 70%, transparent);
+}
+
+.t3plus-bot-summary-toggle .t3plus-icon {
+  width: 0.75rem;
+  height: 0.75rem;
+  transition: transform 150ms ease-out;
+}
+
+.t3plus-bot-summary-toggle[aria-expanded="false"] .t3plus-icon {
+  transform: rotate(-90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t3plus-bot-summary-toggle .t3plus-icon {
+    transition: none;
+  }
+}
+
+/* The stand-in: the bot's row when T3 renders none (it settled and the Settled
+   shelf is closed), drawn like T3's bot rows with T3's tokens. */
+.t3plus-standin-row {
+  position: relative;
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  padding: var(--sidebar-content-inset, 0.5rem) var(--sidebar-row-content-inset, 0.625rem);
+  border-radius: 0.375rem;
+  color: var(--sidebar-foreground, var(--foreground));
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+}
+
+.t3plus-standin-row:hover {
+  background-color: var(--sidebar-row-hover, var(--accent));
+}
+
+.t3plus-standin-row[aria-current="page"] {
+  background-color: var(--sidebar-row-active, var(--accent));
+}
+
+.t3plus-standin-row:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--ring, var(--primary));
+}
+
+.t3plus-standin-top {
+  display: flex;
+  height: 1.25rem;
+  min-width: 0;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.t3plus-standin-name {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.t3plus-standin-name {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.t3plus-standin-status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: auto;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--secondary-label, var(--sidebar-muted-foreground, var(--muted-foreground)));
+}
+
+.t3plus-standin-status:is([data-status="working"], [data-status="attention"], [data-status="failed"]) {
+  font-weight: 500;
+}
+.t3plus-standin-status[data-status="working"] {
+  color: var(--info-foreground, var(--primary));
+}
+.t3plus-standin-status[data-status="attention"] {
+  color: var(--warning-foreground, #d97706);
+}
+.t3plus-standin-status[data-status="failed"] {
+  color: var(--destructive, #ef4444);
+}
+
+
+.t3plus-standin-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.25rem;
+  /* T3's title for a thread already seen (font-normal text-foreground/75), full on hover or open. */
+  color: color-mix(in srgb, var(--foreground) 75%, transparent);
+}
+
+.t3plus-standin-row:not(.t3plus-standin-bot):is(:hover, :focus-visible, [aria-current="page"]) .t3plus-standin-title {
+  color: var(--foreground);
+}
+
+/* Aligned with T3's bot rows (their body pads 2.9375rem; this row pads 0.625rem). */
+.t3plus-standin-bot .t3plus-standin-body {
+  padding-left: 2.3125rem;
+}
+
+.t3plus-standin-bot .t3plus-standin-title {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--secondary-label, var(--sidebar-muted-foreground, var(--muted-foreground)));
 }
 
 /* ---------- Settings -> Appearance section ---------- */
@@ -753,14 +1101,12 @@ html[data-t3plus-glass] :is([data-chat-composer-surface="true"], [data-t3plus-su
   border: 0;
 }
 
-/* Focus ring shared by all controls. */
 .t3plus-section :is(button, input):focus-visible,
 .t3plus-segment:has(input:focus-visible) {
   outline: 2px solid var(--ring, var(--primary));
   outline-offset: 2px;
 }
 
-/* Switch */
 .t3plus-switch {
   position: relative;
   flex: none;
@@ -794,7 +1140,6 @@ html[data-t3plus-glass] :is([data-chat-composer-surface="true"], [data-t3plus-su
   transform: translateX(1rem);
 }
 
-/* Segmented control */
 .t3plus-segmented {
   display: inline-flex;
   padding: 0.125rem;
@@ -822,7 +1167,6 @@ html[data-t3plus-glass] :is([data-chat-composer-surface="true"], [data-t3plus-su
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
 }
 
-/* Buttons */
 .t3plus-button {
   display: inline-flex;
   align-items: center;
@@ -858,7 +1202,67 @@ html[data-t3plus-glass] :is([data-chat-composer-surface="true"], [data-t3plus-su
   color: var(--muted-foreground);
 }
 
-/* Image thumbnail */
+/* Wallpaper picker and uploaded-image thumbnail */
+.t3plus-wallpapers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 7rem), 1fr));
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.t3plus-wallpaper {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  gap: 0.375rem;
+  padding: 0.375rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  cursor: pointer;
+}
+
+.t3plus-wallpaper[hidden] {
+  display: none;
+}
+
+.t3plus-wallpaper-art {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 0.125rem;
+  background: var(--background);
+}
+
+.t3plus-wallpaper-label {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--secondary-label, var(--muted-foreground));
+  font-size: 0.75rem;
+  line-height: 1.25rem;
+}
+
+.t3plus-wallpaper:has(input:checked) {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+
+.t3plus-wallpaper:has(input:checked) .t3plus-wallpaper-label {
+  color: var(--foreground);
+}
+
+.t3plus-wallpaper:has(input:checked) .t3plus-wallpaper-label::after {
+  content: "\2713";
+  margin-left: auto;
+}
+
+.t3plus-wallpaper:has(input:focus-visible) {
+  outline: 2px solid var(--ring, var(--primary));
+  outline-offset: 3px;
+}
+
 .t3plus-thumb {
   width: 2.75rem;
   height: 1.75rem;
@@ -869,7 +1273,6 @@ html[data-t3plus-glass] :is([data-chat-composer-surface="true"], [data-t3plus-su
   background-position: center;
 }
 
-/* Color */
 .t3plus-color {
   width: 2rem;
   height: 1.75rem;
@@ -1442,6 +1845,20 @@ html[data-t3plus-home] [data-chat-composer-overlay="true"].items-center {
   }
 }
 
+/* Widgets and native details use the composer's glass controls. The same
+   opacity/blur changes repaint every surface; text stays at full opacity. */
+.t3plus-w, [data-thread-details-card] {
+  --t3plus-widget-surface: var(--card, #121212);
+  --t3plus-widget-border: color-mix(in srgb, var(--border) 60%, transparent);
+  --t3plus-widget-filter: none;
+}
+html[data-t3plus-glass] :is(.t3plus-w, [data-thread-details-card]) {
+  --t3plus-widget-surface: var(--t3plus-native-glass-fill, color-mix(in oklab, var(--card, #121212) var(--t3plus-glass-opacity, 52%), transparent));
+  --t3plus-widget-border: var(--t3plus-native-glass-outline, color-mix(in srgb, var(--foreground, #fff) 14%, transparent));
+  --t3plus-widget-filter: var(--t3plus-native-glass-filter, blur(var(--t3plus-glass-blur, 18px)) saturate(1.35));
+  --t3plus-widget-shadow: var(--t3plus-native-glass-outer-shadow, none);
+}
+
 /* Cards: T3's rounded-lg border-border/60 panels, as glass over the dither. */
 .t3plus-w {
   display: flex;
@@ -1449,11 +1866,36 @@ html[data-t3plus-home] [data-chat-composer-overlay="true"].items-center {
   flex-direction: column;
   gap: 0.375rem;
   padding: 0.625rem 0.75rem;
-  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border: 1px solid transparent;
   border-radius: 0.625rem;
-  background-color: color-mix(in srgb, var(--card, #111) 74%, transparent);
-  -webkit-backdrop-filter: blur(14px) saturate(1.3);
-  backdrop-filter: blur(14px) saturate(1.3);
+  position: relative;
+  isolation: isolate;
+  background: transparent;
+  box-shadow: var(--t3plus-widget-shadow, none);
+}
+
+/* As in ComposerSurface.Host, glass is behind content and the rim stays crisp.
+   Do not filter the outer card: that creates a different compositing layer. */
+.t3plus-w::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  pointer-events: none;
+  border-radius: inherit;
+  background: var(--t3plus-widget-surface);
+  -webkit-backdrop-filter: var(--t3plus-widget-filter);
+  backdrop-filter: var(--t3plus-widget-filter);
+}
+.t3plus-w::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: 1;
+  pointer-events: none;
+  border: 1px solid var(--t3plus-widget-border);
+  border-radius: inherit;
+  box-shadow: var(--t3plus-native-glass-highlight, none);
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -1510,8 +1952,6 @@ html[data-t3plus-home] [data-chat-composer-overlay="true"].items-center {
 .t3plus-w-empty {
   margin: 0;
 }
-
-/* ---- Pool (weekly pool chart, compact) ---- */
 
 .t3plus-w-pool-head {
   display: flex;
@@ -2003,14 +2443,15 @@ html[data-t3plus-compact-sidebar] [data-t3plus-logo-row] + * > :first-child {
    line (branch, worktree or environment, then T3's icons). With "Title first"
    on, a grid re-flows them without moving anything in the DOM:
      title ............................ status/time
-     [icon] project · meta line ......... icons
+     [icon][pin] project · meta line .... icons
    The first two lines become display: contents so their children land in the
    grid; the meta line stays one flex item (its own leading icon, label and
    icons keep T3's layout), so every meta-line shape works. Hover widens only
    the status cell: the second line never moves. Bot rows keep their layout. */
 html[data-t3plus-title-first] [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) {
   display: grid !important;
-  grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr) auto;
+  /* icon | pin (empty when unpinned) | project | meta line | status */
+  grid-template-columns: auto auto minmax(0, max-content) minmax(0, 1fr) auto;
   grid-template-rows: 1.25rem 1.25rem;
   row-gap: 0.125rem;
   align-items: center;
@@ -2021,10 +2462,10 @@ html[data-t3plus-title-first] [data-sidebar-row][role="button"]:not([data-t3plus
 }
 /* Line 1: the title, then T3's status slot (time, or Snooze/Settle on hover). */
 html[data-t3plus-title-first] [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) > .mt-1 > [dir] {
-  grid-area: 1 / 1 / 2 / 4;
+  grid-area: 1 / 1 / 2 / 5;
 }
 html[data-t3plus-title-first] [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) > .h-5 > .group\/sidebar-status-slot {
-  grid-area: 1 / 4;
+  grid-area: 1 / 5;
   justify-self: end;
   margin-left: 0.375rem;
 }
@@ -2033,13 +2474,18 @@ html[data-t3plus-title-first] [data-sidebar-row][role="button"]:not([data-t3plus
   grid-area: 2 / 1;
   margin-right: 0.375rem;
 }
-html[data-t3plus-title-first] [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) > .h-5 > .truncate {
+/* A pinned row's pin sits after the project icon (in T3 it is line 1's second child). */
+html[data-t3plus-title-first] [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) > .h-5 > :nth-child(2):not(.truncate, .group\/sidebar-status-slot) {
   grid-area: 2 / 2;
+  margin-right: 0.25rem;
+}
+html[data-t3plus-title-first] [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) > .h-5 > .truncate {
+  grid-area: 2 / 3;
   max-width: 10rem;
 }
 /* ...then the meta line as one piece, after a dot. */
 html[data-t3plus-title-first] [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) > .mt-0\.5 {
-  grid-area: 2 / 3 / 3 / 5;
+  grid-area: 2 / 4 / 3 / 6;
   min-width: 0;
   margin-top: 0 !important;
 }
@@ -2050,8 +2496,96 @@ html[data-t3plus-title-first] [data-sidebar-row][role="button"]:not([data-t3plus
 }
 /* Rows without a meta line: T3's icons sit at the end of line 2. */
 html[data-t3plus-title-first] [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) > .mt-1 > :not([dir]) {
-  grid-area: 2 / 3 / 3 / 5;
+  grid-area: 2 / 4 / 3 / 6;
   justify-self: end;
+}
+
+/* ---------- The Assistant's threads: one line ----------
+   They all share the bot's project and run on the same computer, so T3's card
+   row is re-flowed into one line (a grid, nothing moved in the DOM):
+     title ........................ [agent icon] status/time
+   The project icon, pin and name, the branch and the computer icon are hidden;
+   T3's agent icon (the provider stack, last in its icon group) stays. More
+   specific than Title first, so these rows look the same either way. */
+html li[data-t3plus-group="item"] > [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-rows: 1.25rem;
+  row-gap: 0;
+  column-gap: 0.375rem;
+  align-items: center;
+  height: auto !important;
+}
+html li[data-t3plus-group="item"] > [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) > :is(.h-5, .mt-1, .mt-0\.5) {
+  display: contents !important;
+}
+html li[data-t3plus-group="item"] > [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) > .h-5 > :not(.group\/sidebar-status-slot),
+html li[data-t3plus-group="item"] > [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) > .mt-0\.5 > :not([aria-hidden="true"]) {
+  display: none !important;
+}
+html li[data-t3plus-group="item"] > [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) > .mt-1 > [dir] {
+  grid-area: 1 / 1;
+  max-width: none;
+}
+/* T3's icons (on the meta line, or the title line when there is no meta line). */
+html li[data-t3plus-group="item"] > [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) > :is(.mt-1, .mt-0\.5) > [aria-hidden="true"]:not([dir]) {
+  grid-area: 1 / 2;
+  margin: 0 !important;
+}
+html li[data-t3plus-group="item"] > [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) > :is(.mt-1, .mt-0\.5) > [aria-hidden="true"]:not([dir]) > :not(:last-child) {
+  display: none !important;
+}
+html li[data-t3plus-group="item"] > [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) > .h-5 > .group\/sidebar-status-slot {
+  grid-area: 1 / 3;
+  justify-self: end;
+  /* T3 keeps a 2rem slot for its hover buttons; here the time sits right after the icon. */
+  min-width: 0 !important;
+}
+/* Title first puts a dot before the meta line; with the line folded away it must go too. */
+html li[data-t3plus-group="item"] > [data-sidebar-row][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) > .mt-0\.5::before {
+  content: none !important;
+  display: none !important;
+}
+
+/* ---------- The Assistant's threads outside the bots ----------
+   In a T3 shelf (Working while they run, Snoozed, Settled) or in the inbox (worker
+   threads), they keep T3's row and project icon but read as the Assistant's:
+   its name in place of the project name, and no branch. */
+[data-t3plus-via] > .relative.z-10 > .h-5 > [data-t3plus-via-label] {
+  font-size: 0 !important;
+}
+[data-t3plus-via] > .relative.z-10 > .h-5 > [data-t3plus-via-label]::before {
+  content: attr(data-t3plus-via-label);
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+[data-t3plus-via] > .relative.z-10 > .mt-0\.5 > :not([aria-hidden="true"]) {
+  display: none !important;
+}
+/* Title first: no dot before the empty branch. */
+html[data-t3plus-title-first] [data-sidebar-row][data-t3plus-via][role="button"]:not([data-t3plus-bot]) > .relative.z-10:has(> .h-5 > .group\/sidebar-status-slot):has(> .mt-1 > [dir]) > .mt-0\.5::before {
+  content: none;
+}
+
+/* ---------- Status: icon and time ----------
+   Every thread row's status shows T3's icon and, where T3 has one, its time,
+   without the word: Working is the blue dashed circle and how long it has
+   run, Done the check, Approval and Input their question icons. The word is a
+   bare text node in T3's status span (SidebarThreadRow.tsx), so the span's
+   font size is zeroed and the time span gets T3's text-xs back. The row's
+   aria-label still names the status. */
+[data-sidebar-row] .group\/sidebar-status-slot > span > span.inline-flex.font-medium {
+  gap: 0 !important;
+  font-size: 0 !important;
+}
+[data-sidebar-row] .group\/sidebar-status-slot > span > span.inline-flex.font-medium > span {
+  margin-left: 0.25rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+/* Woke (a snoozed thread came back) keeps its alarm icon, a button T3 owns. */
+[data-sidebar-row] .group\/sidebar-status-slot button.font-medium > span[role="status"] {
+  display: none;
 }
 
 /* Settle is just its check mark (the label is in its tooltip and aria-label),
@@ -2124,10 +2658,245 @@ html[data-t3plus-settings] #t3plus-appearance {
    T3's thread details card (dropdown-glass) gets the same material as the
    home widget cards and the glass composer, so the three read as one set. */
 [data-thread-details-card] {
-  border-color: color-mix(in srgb, var(--border) 60%, transparent) !important;
-  background-color: color-mix(in srgb, var(--card, #111) 74%, transparent) !important;
-  -webkit-backdrop-filter: blur(14px) saturate(1.3) !important;
-  backdrop-filter: blur(14px) saturate(1.3) !important;
+  border-color: var(--t3plus-widget-border) !important;
+  background: var(--t3plus-widget-surface) !important;
+  -webkit-backdrop-filter: var(--t3plus-widget-filter) !important;
+  backdrop-filter: var(--t3plus-widget-filter) !important;
+  /* Keep T3's paint containment and ScrollArea clipping intact. The native
+     frame paints glass directly, with the composer's rim above its fill. */
+  box-shadow: var(--t3plus-native-glass-combined-shadow, none);
+}
+
+/* Assistant tasks use the remaining height up to the lowest home widget.
+   T3 keeps its responsive max-height and controls above the scrollable list. */
+[data-thread-details-card][data-t3plus-tasks-layout] { height: var(--t3plus-tasks-height, 75dvh); }
+[data-t3plus-tasks-host] { display: flex; flex-direction: column; height: 100%; min-height: 100%; }
+[data-t3plus-tasks-host] > :not(.t3plus-tasks) { flex: none; }
+.t3plus-tasks {
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 10rem;
+  min-height: 12rem;
+  min-width: 0;
+  overflow: hidden;
+  margin-top: 0.375rem;
+  padding: 0.5rem 0.75rem 0.375rem;
+  border-top: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+  color: var(--foreground);
+  font-size: 0.75rem;
+}
+.t3plus-tasks-head {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.25rem;
+}
+.t3plus-tasks-head h3 {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.t3plus-tasks-heading-link { color: inherit; text-decoration: none; }
+.t3plus-tasks-heading-link:hover,
+.t3plus-tasks-heading-link:focus-visible { text-decoration: underline; text-underline-offset: 2px; }
+.t3plus-tasks-actions { display: flex; align-items: center; gap: 0.375rem; }
+.t3plus-tasks-refresh { min-width: 1.75rem; min-height: 1.75rem; padding: 0; border: 0; border-radius: 0.375rem; background: none; font: inherit; font-size: 1rem; cursor: pointer; }
+.t3plus-tasks-refresh:hover { background: var(--accent); }
+.t3plus-tasks-refresh:disabled { opacity: 0.5; cursor: default; }
+.t3plus-tasks-link {
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  text-decoration: none;
+}
+.t3plus-tasks-link:hover,
+.t3plus-tasks-link:focus-visible {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.t3plus-tasks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  flex: 1 1 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+.t3plus-tasks-list:focus-visible { outline: 1px solid var(--ring); outline-offset: -1px; }
+.t3plus-tasks-signin {
+  align-self: flex-start;
+  margin-top: 0.625rem;
+  padding: 0.375rem 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--secondary);
+  color: var(--foreground);
+  font-size: 0.75rem;
+  text-decoration: none;
+}
+.t3plus-tasks-signin:hover { background: var(--accent); }
+.t3plus-tasks-signin:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.t3plus-task {
+  flex: none;
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr) 1.75rem;
+  align-items: flex-start;
+  gap: 0.125rem 0.25rem;
+  min-width: 0;
+  padding: 0.375rem 0;
+  border-top: 1px solid color-mix(in srgb, var(--border) 38%, transparent);
+}
+.t3plus-task:first-child { border-top: 0; }
+.t3plus-task:not(:has(.t3plus-task-check)) { grid-template-columns: minmax(0, 1fr) 1.75rem; }
+.t3plus-task-category {
+  grid-column: 1 / -1;
+  margin: 0.375rem 0 0.375rem;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.t3plus-task:first-child .t3plus-task-category { margin-top: 0; }
+.t3plus-task-controls button,
+.t3plus-task-editor select {
+  min-width: 0;
+  min-height: 1.75rem;
+  max-width: 100%;
+  border: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+  border-radius: 0.375rem;
+  background: color-mix(in srgb, var(--background) 45%, transparent);
+  color: inherit;
+  font: inherit;
+  font-size: 0.6875rem;
+  line-height: 1.25;
+  padding: 0.25rem 0.375rem;
+}
+.t3plus-task-controls { grid-column: 2 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; min-width: 0; }
+.t3plus-task:not(:has(.t3plus-task-check)) .t3plus-task-controls { grid-column: 1 / -1; }
+.t3plus-task-editor { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; padding: 0.25rem 0; color: var(--muted-foreground); font-size: 0.6875rem; }
+.t3plus-task-category-select { flex: 1; min-width: 0; }
+.t3plus-task-check, .t3plus-task-options { display: grid; place-items: center; width: 1.75rem; height: 1.75rem; border: 0; border-radius: 0.375rem; padding: 0; background: transparent; color: var(--muted-foreground); font: inherit; cursor: pointer; }
+.t3plus-task-check:hover, .t3plus-task-options:hover { background: var(--accent); color: var(--foreground); }
+.t3plus-task-check > span { width: 0.875rem; height: 0.875rem; border: 1px solid currentColor; border-radius: 0.25rem; }
+.t3plus-task[aria-busy="true"] .t3plus-task-check > span { border-style: dotted; }
+.t3plus-task-options { font-size: 1rem; }
+.t3plus-task-controls button { cursor: pointer; overflow-wrap: anywhere; }
+.t3plus-task-controls button { text-align: start; }
+.t3plus-task-controls button:hover { background: var(--accent); }
+.t3plus-tasks :is(button, select, input, a):focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.t3plus-tasks :is(button, select, input):disabled { opacity: 0.55; cursor: default; }
+.t3plus-task-thread { color: var(--muted-foreground); font-size: 0.6875rem; overflow-wrap: anywhere; }
+.t3plus-task-main { min-width: 0; padding-top: 0.25rem; }
+.t3plus-task-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+.t3plus-task-meta,
+.t3plus-tasks-message {
+  display: block;
+  margin: 0.125rem 0 0;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.t3plus-task-meta { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; line-height: 1.5; }
+.t3plus-task-source { display: block; max-width: 100%; width: fit-content; min-height: 1.5rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--muted-foreground); font-size: 0.6875rem; line-height: 1.5rem; text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 2px; }
+.t3plus-task-source:hover { color: var(--foreground); }
+.t3plus-task[data-expanded="true"] .t3plus-task-title { display: block; }
+.t3plus-task[data-expanded="true"] .t3plus-task-meta { white-space: normal; }
+.t3plus-task-status-overdue { color: var(--destructive, #ef4444); }
+
+/* ---------- Family Immich details widget ---------- */
+.t3plus-immich {
+  flex: none;
+  min-width: 0;
+  padding: 0.55rem 0.7rem 0.6rem;
+  border-top: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+  color: var(--foreground);
+  font-size: 0.75rem;
+}
+.t3plus-immich-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; min-width: 0; }
+.t3plus-immich-head h3 { margin: 0; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.01em; }
+.t3plus-immich-link { color: var(--muted-foreground); font-size: 0.6875rem; white-space: nowrap; }
+.t3plus-immich-link:hover, .t3plus-immich-link:focus-visible { color: var(--foreground); }
+.t3plus-immich-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.3rem; margin-top: 0.45rem; }
+.t3plus-immich-photo { display: block; min-width: 0; color: inherit; text-decoration: none; }
+.t3plus-immich-thumb { display: block; overflow: hidden; min-width: 0; aspect-ratio: var(--t3plus-photo-ratio, 1.2); border-radius: 0.36rem; background: color-mix(in srgb, var(--muted) 22%, transparent); }
+.t3plus-immich-thumb img { display: block; width: 100%; height: 100%; aspect-ratio: inherit; object-fit: cover; }
+.t3plus-immich-thumb-placeholder { display: block; width: 100%; height: 100%; background: color-mix(in srgb, var(--muted) 25%, transparent); }
+.t3plus-immich-photo-date { display: block; overflow: hidden; margin-top: 0.18rem; color: var(--muted-foreground); font-size: 0.625rem; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
+.t3plus-immich-message { margin: 0.45rem 0 0; color: var(--muted-foreground); overflow-wrap: anywhere; }
+.t3plus-immich-status { display: flex; align-items: center; gap: 0.3rem; margin: 0.45rem 0 0; color: var(--muted-foreground); font-size: 0.625rem; line-height: 1.2; }
+.t3plus-immich-status::before { content: ""; width: 0.36rem; height: 0.36rem; flex: none; border-radius: 50%; background: var(--muted-foreground); }
+.t3plus-immich-status-online::before { background: var(--success, #65c18c); }
+.t3plus-immich-status-degraded::before { background: var(--warning, #e3ae5b); }
+.t3plus-immich-status-offline::before, .t3plus-immich-status-stale::before { background: var(--destructive, #ef6f75); }
+.t3plus-immich :is(a):focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 0.2rem; }
+@media (max-width: 340px) {
+  .t3plus-immich-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+/* Read-only agenda/weather share the native details glass; no extra fill layer.
+   A bounded footprint leaves the task list as the scrolling content region. */
+.t3plus-assistant-info { flex: none; min-width: 0; color: var(--foreground); font-size: 0.6875rem; line-height: 1.2; }
+.t3plus-info-card { position: relative; min-width: 0; padding: 0.375rem 0.75rem; border-top: 1px solid color-mix(in srgb, var(--border) 58%, transparent); overflow: hidden; }
+.t3plus-info-calendar { padding-block: 0.5rem; }
+.t3plus-info-card header { display: flex; align-items: center; justify-content: space-between; gap: 0.25rem; min-width: 0; }
+.t3plus-info-card h3 { margin: 0; font-size: 0.75rem; font-weight: 600; }
+.t3plus-info-actions { display: flex; align-items: center; gap: 0.25rem; min-width: 0; }
+.t3plus-info-card a { color: var(--muted-foreground); text-decoration: none; overflow-wrap: anywhere; }
+.t3plus-info-card a:hover { color: var(--foreground); text-decoration: underline; }
+.t3plus-info-card button { min-width: 1.5rem; min-height: 1.5rem; padding: 0 0.25rem; font: inherit; color: inherit; background: transparent; border: 0; border-radius: 0.375rem; cursor: pointer; }
+.t3plus-info-card button:hover { background: var(--accent); }
+.t3plus-info-card button:disabled { opacity: 0.45; cursor: default; }
+.t3plus-info-card :is(button, a):focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.t3plus-info-agenda { list-style: none; margin: 0.375rem 0 0; padding: 0; max-height: 12.5rem; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+@media (max-height: 600px) {
+  .t3plus-info-agenda { max-height: 6rem; }
+}
+.t3plus-info-agenda li { min-width: 0; line-height: 1.4; padding: 0.25rem 0; }
+.t3plus-info-calendar header { align-items: flex-start; }
+.t3plus-info-calendar h3 { min-width: 0; line-height: 1.4; }
+.t3plus-info-calendar h3 > a { color: var(--foreground); }
+.t3plus-info-clock { display: block; color: var(--muted-foreground); font-size: 0.6875rem; font-weight: 400; margin-top: 0.125rem; }
+.t3plus-info-day-nav { flex: none; gap: 0; }
+.t3plus-info-day-nav button { width: 1.5rem; height: 1.75rem; font-size: 1.125rem; color: var(--muted-foreground); }
+.t3plus-info-event-body { min-width: 0; border-left: 2px solid var(--border); padding-left: 0.5rem; }
+.t3plus-info-calendar .t3plus-info-event { font-size: 0.75rem; }
+.t3plus-info-calendar .t3plus-info-meta { font-size: 0.6875rem; white-space: normal; overflow-wrap: anywhere; margin-top: 0.125rem; }
+.t3plus-info-calendar ol:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.t3plus-info-event { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.t3plus-info-meta { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.t3plus-info-meta, .t3plus-info-message { color: var(--muted-foreground); font-size: 0.625rem; }
+.t3plus-info-message { margin: 0.25rem 0; overflow-wrap: anywhere; line-height: 1.25; }
+[data-t3plus-tasks-host]:has(> .t3plus-assistant-info) > .t3plus-tasks { flex: 1 1 10rem; }
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  [data-thread-details-card] { background: var(--card, #111) !important; }
+  .t3plus-w::before, [data-thread-details-card]::before { display: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  html[data-t3plus-glass] :is(.t3plus-w, [data-thread-details-card]) {
+    --t3plus-widget-surface: var(--t3plus-native-glass-fill, color-mix(in oklab, var(--card, #121212) 96%, transparent));
+  }
+}
+@media (forced-colors: active) {
+  .t3plus-w::before, .t3plus-w::after, [data-thread-details-card]::before, [data-thread-details-card]::after { display: none; }
+  [data-thread-details-card] {
+    background: Canvas !important;
+    border-color: CanvasText !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
 }
 
 /* Usage limits: the provider's pool chart replaces T3's rows. */
@@ -2135,6 +2904,7 @@ html[data-t3plus-settings] #t3plus-appearance {
   display: none !important;
 }
 .t3plus-details-pool .t3plus-w {
+  box-shadow: none;
   padding: 0.25rem 0.625rem 0.125rem;
   border: 0;
   border-radius: 0;
@@ -2170,6 +2940,7 @@ html[data-t3plus-home] [data-thread-details-card] section[aria-label="Usage limi
 .t3plus-details-pool .t3plus-w-plot {
   margin-top: 0.625rem;
 }
+.t3plus-details-pool .t3plus-w::before, .t3plus-details-pool .t3plus-w::after { display: none; }
 .t3plus-details-pool .t3plus-w {
   padding-bottom: 0.375rem;
 }

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { STORAGE_KEYS, T3PLUS } from "../src/config.js";
-import { normalizeProfileView, threadKeyFromPath, threadToRestore } from "../src/profiles.js";
+import { normalizeProfileView, threadToRestore } from "../src/profiles.js";
+import { threadKeyFromPath } from "../src/threadKey.js";
 import { normalizeT3PlusConfig } from "../src/remoteConfig.js";
 import { computeProfileVisibility, findProfileBarSlot, findSidebarInner, scanSidebar } from "../src/sidebar.js";
 import { createApp, createDom, createFakeChromeStorage, createFakeRemote, SAMPLE_CONFIG, settle, sidebarHtml } from "./helpers.js";
@@ -30,13 +31,22 @@ test("threadKeyFromPath reads /<environmentId>/<threadId> and ignores app routes
 
 test("scanSidebar reads T3's row hooks: folders, threads, parents, titles, current row", () => {
   const { scan } = scanOf(sidebarHtml({ currentKey: "env1:w1" }));
-  assert.equal(scan.folderMode, true);
   assert.deepEqual([...scan.folders.keys()], ["github.com/acme/api", "github.com/acme/web", "/home/me/notes"]);
   const a1 = scan.threads.find((t) => t.key === "env1:a1");
   assert.equal(a1.folderKey, "github.com/acme/api");
   assert.equal(a1.title, "Fix login");
   assert.equal(a1.titleEl.textContent, "Fix login");
   assert.equal(scan.threads.find((t) => t.current).key, "env1:w1");
+});
+
+test("scanSidebar recovers a title when T3's sr-only copy is missing", () => {
+  const dom = createDom("/env1/x1", sidebarHtml());
+  const inner = findSidebarInner(dom.window.document);
+  inner.querySelector('[data-sidebar-row] .sr-only')?.remove();
+  const scan = scanSidebar(inner);
+  const first = scan.threads.find((thread) => thread.key === "env1:bot1");
+  assert.equal(first.title, "[[t3plus:bot:v1]] Orchestrator");
+  assert.equal(first.titleEl?.textContent, "[[t3plus:bot:v1]] Orchestrator");
 });
 
 test("project-grouped sidebar: a profile shows its folders and their threads", () => {
@@ -55,7 +65,7 @@ test("project-grouped sidebar: a profile shows its folders and their threads", (
 
 test("flat sidebar: thread-level fallback, and a shelf with no visible rows is hidden", () => {
   const { scan } = scanOf(sidebarHtml({ folders: false }));
-  assert.equal(scan.folderMode, false);
+  assert.equal(scan.folders.size, 0);
   const { hidden } = computeProfileVisibility(scan, flatWork, {});
   assert.deepEqual(keysHidden(scan, hidden), ["env1:bot1", "env2:n1"]);
   assert.ok(hidden.has(scan.shelves.get("shelf:settled")));
