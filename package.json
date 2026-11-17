@@ -1,6 +1,6 @@
 {
   "name": "t3plus",
-  "version": "0.18.2",
+  "version": "0.19.0",
   "private": true,
   "license": "PolyForm-Noncommercial-1.0.0",
   "description": "t3+: a Chrome extension that adds a glow, glass composer, usage widgets, bots, profiles and a screenshot mode to the T3 Code web app",
@@ -8,12 +8,13 @@
   "scripts": {
     "build": "node build.mjs",
     "dev": "node build.mjs --watch",
-    "test": "node --test \"test/*.test.js\"",
+    "test": "node --import ./test/support/register.mjs --test \"test/*.test.js\"",
     "verify": "npm run build && npm test",
     "harness": "node harness/serve.mjs",
     "screenshots": "node harness/screenshot.mjs",
-    "publish:public": "node tools/publish-public.mjs",
-    "release:package": "node tools/release.mjs"
+    "perf": "node harness/perf.mjs",
+    "release:package": "node tools/release.mjs",
+    "release:check": "py -3.12 harness/packageCheck.py"
   },
   "devDependencies": {
     "esbuild": "^0.25.0",

@@ -1,23 +1,32 @@
-import { BOT_MARKER_PATTERN, CONFIG_LIMITS, DEFAULT_BOT_MARKER, STORAGE_KEYS } from "./config.js";
-import { CONFIG_ENDPOINTS } from "./hosts.js";
-import { normalizeAccent, subscribeKey } from "./settings.js";
+import { BOT_MARKER_PATTERN, CONFIG_LIMITS, DEFAULT_BOT_MARKER, STORAGE_KEYS, normalizeAccent } from "./config.js";
+import { CONFIG_ENDPOINT } from "./hosts.js";
+import { subscribeKey } from "./storage.js";
+import { THREAD_KEY } from "./threadKey.js";
 
 // Server-owned t3plus.json: profile definitions, project/thread memberships and
 // the bot title marker. t3+ only READS this file. It is written by whoever owns
-// the file share (see README "Profiles: t3plus.json and the control thread").
-//
-// Sources, in the order the provider tries them:
-//   "remote"  the default endpoint (src/hosts.js), fetched by the background worker
-//   "cache"   the last good remote copy, used (and labelled) when the fetch fails
-//   "local"   a JSON override pasted in Settings, used only when the user picks it
-//   "none"    nothing usable: only the "All" tab, plus a diagnostic saying why
+// the file share (see docs/setup.md "Profiles (t3plus.json)").
+
+/**
+ * Sources, in the order the provider tries them, and how the UI names each:
+ * `status` on the profile strip's status button, `summary` in Settings.
+ *   remote  the default endpoint (src/hosts.js), fetched by the background worker
+ *   cache   the last good remote copy, used (and labelled) when the fetch fails
+ *   local   a JSON override pasted in Settings, used only when the user picks it
+ *   none    nothing usable: only the "All" tab, plus a diagnostic saying why
+ */
+export const CONFIG_SOURCES = {
+  remote: { status: "Profiles from the server t3plus.json", summary: "Loaded from the server file" },
+  cache: { status: "Profiles from a cached copy of t3plus.json", summary: "Using a cached copy of the server file" },
+  local: { status: "Profiles from the local override in this browser", summary: "Using the local override" },
+  none: { status: "No profiles loaded", summary: "No profiles loaded" },
+};
 
 const PROFILE_ID = /^[a-z0-9][a-z0-9_-]{0,31}$/;
-const THREAD_KEY = /^[^:\s]+:[^\s]+$/;
 
 /** Config with no profiles: what t3+ shows when no source is usable. */
 export function emptyConfig() {
-  return { version: 1, botMarker: DEFAULT_BOT_MARKER, profiles: [], controlThread: null, updatedAt: null };
+  return { version: 1, botMarker: DEFAULT_BOT_MARKER, profiles: [] };
 }
 
 const uniqueStrings = (list, max, test = () => true) => {
@@ -50,8 +59,6 @@ export function normalizeT3PlusConfig(raw) {
     if (typeof raw.botMarker === "string" && BOT_MARKER_PATTERN.test(raw.botMarker)) config.botMarker = raw.botMarker;
     else errors.push(`Ignored "botMarker": it must be one [[...]] token without spaces.`);
   }
-  if (typeof raw.controlThread === "string" && THREAD_KEY.test(raw.controlThread)) config.controlThread = raw.controlThread;
-  if (typeof raw.updatedAt === "string") config.updatedAt = raw.updatedAt.slice(0, 40);
 
   const profiles = Array.isArray(raw.profiles) ? raw.profiles : [];
   if (!Array.isArray(raw.profiles)) errors.push(`"profiles" must be an array.`);
@@ -105,7 +112,7 @@ export function parseT3PlusConfigText(text) {
 }
 
 /** Human-readable reason for a failed fetch result from the background worker. */
-export function describeFetchFailure(result, url) {
+function describeFetchFailure(result, url) {
   if (!result) return `No response from the t3+ background worker.`;
   if (result.error) return `Could not reach ${url}: ${result.error}`;
   if (result.status === 404) return `${url} returned 404: t3plus.json has not been published yet.`;
@@ -119,15 +126,16 @@ export function describeFetchFailure(result, url) {
  *   area, changedEvent,                     chrome.storage.local (+ onChanged)
  *   fetchRemote(url) -> Promise<{ ok, status, text?, error? }>   background worker
  *   now?() -> ms
- *   endpoint?                                defaults to CONFIG_ENDPOINTS[0]
  * }
  *
+ * Reads CONFIG_ENDPOINT (src/hosts.js). A cached copy fetched from another
+ * endpoint (an older build) is ignored.
  * load() resolves to { config, source, errors, diagnostic, fetchedAt, endpoint }.
  */
 export function createConfigProvider(deps) {
   const { area, changedEvent, fetchRemote } = deps;
   const now = deps.now ?? (() => Date.now());
-  const endpoint = deps.endpoint ?? CONFIG_ENDPOINTS[0];
+  const endpoint = CONFIG_ENDPOINT;
 
   async function readLocal() {
     const value = (await area.get(STORAGE_KEYS.configLocal))?.[STORAGE_KEYS.configLocal];
@@ -221,6 +229,8 @@ export function createConfigProvider(deps) {
 export function createRuntimeFetcher(runtime) {
   return (url) =>
     new Promise((resolve) => {
+      // An unset feed folder (src/personal.js FEED_BASE) makes no request.
+      if (!url) return resolve({ ok: false, status: 0, error: "No feed folder is set (FEED_BASE in src/personal.js)." });
       try {
         runtime.sendMessage({ type: "t3plus/fetch-config", url }, (response) => {
           const lastError = runtime.lastError;

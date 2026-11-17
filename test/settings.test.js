@@ -35,7 +35,8 @@ test("normalizeSettings keeps valid values and clamps intensity", () => {
 test("settings persist across store instances (a page reload)", async () => {
   const storage = createFakeChromeStorage();
   const first = createSettingsStore(storage.area, storage.onChanged);
-  await first.updateGradient({ mode: "image", intensity: 80 });
+  const defaults = defaultSettings();
+  await first.save({ ...defaults, composerGradient: { ...defaults.composerGradient, mode: "image", intensity: 80 } });
 
   const second = createSettingsStore(storage.area, storage.onChanged);
   const loaded = await second.load();
@@ -52,10 +53,11 @@ test("reset restores defaults and subscribe reports saves from another tab", asy
   const seen = [];
   const unsubscribe = tabB.subscribe((settings) => seen.push(settings.composerGradient.mode));
 
-  await tabA.updateGradient({ mode: "image" });
+  const asImage = (s) => ({ ...s, composerGradient: { ...s.composerGradient, mode: "image" } });
+  await tabA.save(asImage(await tabA.load()));
   await tabA.reset();
   unsubscribe();
-  await tabA.updateGradient({ mode: "image" });
+  await tabA.save(asImage(await tabA.load()));
 
   assert.deepEqual(seen, ["image", "half-circle"]);
   assert.deepEqual(await tabB.load(), { ...defaultSettings(), composerGradient: { ...defaultSettings().composerGradient, mode: "image" } });

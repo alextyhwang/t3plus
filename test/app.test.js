@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { T3PLUS, STORAGE_KEYS } from "../src/config.js";
+import { T3PLUS, STORAGE_KEYS, WALLPAPERS } from "../src/config.js";
 import {
   createApp,
   createDom,
@@ -179,6 +179,83 @@ test("a failed upload shows the error and keeps the previous image", async () =>
   await app.actions.chooseImage({ name: "doc.pdf", type: "application/pdf", size: 10 });
   assert.equal(panelIn(dom.window.document).querySelector('[role="status"]').textContent, "Use a PNG, JPEG, WebP, AVIF, or GIF image.");
   assert.equal(storage.area.data.has(STORAGE_KEYS.image), false);
+  app.stop();
+});
+
+test("wallpaper selection feeds the same asset to CSS and dither, persists and restores across tabs", async () => {
+  const storage = createFakeChromeStorage();
+  const dom = createDom("/settings/appearance", T3_APPEARANCE_HTML);
+  const jobs = [];
+  const { app } = createApp(dom, storage, { backdropRenderer: { update: (job) => jobs.push(job), clear() {} } });
+  const chat = createDom("/env/thread", T3_COMPOSER_HTML);
+  const second = createApp(chat, storage).app;
+  await app.start();
+  await second.start();
+  try {
+    await app.actions.setMode("image");
+    for (const { id, label, path } of WALLPAPERS) {
+      const input = panelIn(dom.window.document).querySelector(`.t3plus-wallpapers input[value="${id}"]`);
+      assert.match(input.closest("label").textContent, new RegExp(label));
+      assert.equal(input.closest("label").querySelector("img").getAttribute("src"), `chrome-extension://t3plus-test/${path}`);
+      input.checked = true;
+      input.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+      await settle();
+      app.watcher.flush();
+      const expected = `chrome-extension://t3plus-test/${path}`;
+      assert.equal(dom.window.document.documentElement.style.getPropertyValue("--t3plus-image"), `url("${expected}")`);
+      assert.equal(chat.window.document.documentElement.style.getPropertyValue("--t3plus-image"), `url("${expected}")`);
+      assert.equal(jobs.at(-1).imageSrc, expected, "dither and smooth rendering use the chosen wallpaper");
+      assert.equal(storage.area.data.get(STORAGE_KEYS.settings).composerGradient.imageSource, id);
+      assert.equal(storage.area.data.has(STORAGE_KEYS.image), false, "bundled assets never enter upload storage");
+      assert.equal(panelIn(dom.window.document).querySelectorAll('.t3plus-wallpapers input:checked').length, 1);
+    }
+  } finally {
+    app.stop();
+    second.stop();
+  }
+  const reloaded = createDom("/env/thread", T3_COMPOSER_HTML);
+  const third = createApp(reloaded, storage).app;
+  await third.start();
+  assert.match(reloaded.window.document.documentElement.style.getPropertyValue("--t3plus-image"), /wallpaper-facets\.svg/);
+  third.stop();
+});
+
+test("trying wallpapers retains a selectable upload, and removing it preserves the selected wallpaper", async () => {
+  const dom = createDom("/settings/appearance", T3_APPEARANCE_HTML);
+  const { app, storage } = createApp(dom, undefined, { prepareImage: async (file) => fakeImageRecord(file.name) });
+  await app.start();
+  try {
+    await app.actions.setMode("image");
+    await app.actions.chooseImage({ name: "mine.png", type: "image/png", size: 10 });
+    await app.actions.setImageSource("aurora");
+    const upload = panelIn(dom.window.document).querySelector('.t3plus-wallpapers input[value="upload"]');
+    assert.equal(upload.closest("label").hidden, false);
+    assert.ok(storage.area.data.has(STORAGE_KEYS.image));
+    await app.actions.setImageSource("upload");
+    assert.match(dom.window.document.documentElement.style.getPropertyValue("--t3plus-image"), /^url\("blob:/);
+    assert.equal(upload.checked, true);
+    await app.actions.setImageSource("contours");
+    await app.actions.removeImage();
+    assert.equal(storage.area.data.get(STORAGE_KEYS.settings).composerGradient.imageSource, "contours");
+    assert.match(dom.window.document.documentElement.style.getPropertyValue("--t3plus-image"), /wallpaper-contours\.svg/);
+    assert.equal(upload.closest("label").hidden, true);
+    assert.equal(upload.closest("label").querySelector("img").hasAttribute("src"), false);
+    await app.actions.setImageSource("upload");
+    await app.actions.setImageSource("https://example.com/untrusted.svg");
+    assert.equal(storage.area.data.get(STORAGE_KEYS.settings).composerGradient.imageSource, "contours");
+  } finally {
+    app.stop();
+  }
+});
+
+test("a missing upload falls back to Spectrum in both the picker and renderer", async () => {
+  const storage = createFakeChromeStorage();
+  storage.area.data.set(STORAGE_KEYS.settings, { composerGradient: { mode: "image", imageSource: "upload" } });
+  const dom = createDom("/settings/appearance", T3_APPEARANCE_HTML);
+  const { app } = createApp(dom, storage);
+  await app.start();
+  assert.match(dom.window.document.documentElement.style.getPropertyValue("--t3plus-image"), /sample-spectrum\.svg/);
+  assert.equal(panelIn(dom.window.document).querySelector('.t3plus-wallpapers input:checked').value, "sample");
   app.stop();
 });
 

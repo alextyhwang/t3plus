@@ -7,6 +7,7 @@
 import { spawn } from "node:child_process";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { withAssistantIds } from "./fixture.mjs";
 
 const chrome = process.env.CHROME;
 if (!chrome) {
@@ -29,7 +30,7 @@ const settings = ({ background = false, mode = "half-circle", glass = true, ...g
   glass: { enabled: glass, strength: 60 },
   sidebar: { profiles: true, bots: true },
 });
-// Synthetic home feed (no real data): 26 weeks of activity, limits, spend, automations.
+// Synthetic home feed (no real data): 26 weeks of activity, limits, spend, token activity.
 function homeFeed() {
   const now = new Date();
   const day = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -45,7 +46,6 @@ function homeFeed() {
     if (i < 62) spend[day(d)] = { codex: [Math.round(rand() * 900) / 100, 1e6], claude: [Math.round(rand() * 1400) / 100, 2e6] };
   }
   const iso = (h) => new Date(now.getTime() + h * 3600000).toISOString();
-  const history = Array.from({ length: 60 }, (_, i) => ({ t: iso(-118 + i * 2), weekLeft: Math.round(1450 - i * 13 + (i > 40 ? 300 : 0)), weekCap: 1700 }));
   const plus = (label, used5, usedW, resetH) => ({ label, plan: "ChatGPT Plus Subscription", windows: [{ label: "Session", kind: "session", durationMins: 300, usedPercent: used5, resetsAt: iso(3) }, { label: "Weekly", kind: "weekly", durationMins: 10080, usedPercent: usedW, resetsAt: iso(resetH) }] });
   return JSON.stringify({
     version: 1,
@@ -59,43 +59,48 @@ function homeFeed() {
       codex: { accounts: [{ label: "Pro", plan: "ChatGPT Pro Subscription", windows: [{ label: "Weekly", kind: "weekly", durationMins: 10080, usedPercent: 45, resetsAt: iso(30) }] },
         plus("A", 0, 100, 20), plus("B", 20, 60, 40), plus("C", 0, 10, 90), plus("D", 80, 100, 8), plus("E", 0, 30, 70), plus("F", 5, 0, 100), plus("G", 0, 55, 60)] },
     },
-    limitHistory: history,
     // Recorded pools (every 30 minutes, 3 days): Codex drains with one refill; Claude drains slowly.
     codexSeries: Array.from({ length: 145 }, (_, i) => {
       const t = Math.floor(now.getTime() / 1000) - (144 - i) * 1800;
       return [t, Math.max(0, Math.round(1300 - i * 6 + (i > 90 ? 500 : 0))), 1700];
     }),
     claudeSeries: Array.from({ length: 145 }, (_, i) => [Math.floor(now.getTime() / 1000) - (144 - i) * 1800, Math.round(420 - i * 0.5), 600]),
-    // An activity source: AI tokens per day.
+    // An activity source: AI tokens per day, as {day: [total, {provider: tokens}]}.
     aiActivity: Object.fromEntries(Array.from({ length: 140 }, (_, i) => {
       const d = new Date(now);
       d.setDate(now.getDate() - i);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       const v = Math.max(0, Math.round((Math.sin(i * 1.7) + Math.cos(i * 0.31)) * 4e8 + (140 - i) * 6e6));
-      return [key, i % 9 === 4 ? 0 : v];
+      return [key, [i % 9 === 4 ? 0 : v, {}]];
     })),
-    automations: [
-      { title: "Daily inbox cleanup", project: 1, threadKey: "env2:n1", nextRunAt: iso(0.6), lastStatus: "succeeded" },
-      { title: "Nightly dependency check", project: 0, threadKey: "env1:a1", nextRunAt: iso(3.2), lastStatus: "failed" },
-      { title: "Weekly notes digest", project: 1, threadKey: "env2:n2", nextRunAt: iso(26), lastStatus: "succeeded" },
-      { title: "Release notes draft", project: 0, threadKey: "env1:a2", nextRunAt: iso(50), lastStatus: "succeeded" },
-    ],
   });
 }
 
 // Three marked bot rows; shape and color as a user would set them in Settings.
-const bots = { "env1:bot1": { shape: "circle", color: "blue" }, "env2:bot2": { shape: "triangle", color: "orange" }, "env2:bot3": { shape: "hexagon", color: "purple" }, "env2:bot4": { shape: "circle", color: "pink" }, "env2:bot5": { shape: "square", color: "teal" } };
+const bots = JSON.parse(withAssistantIds(JSON.stringify({ "env1:bot1": { shape: "circle", color: "blue" }, "env2:bot2": { shape: "triangle", color: "orange" }, "env2:bot3": { shape: "hexagon", color: "purple" }, "env2:bot4": { shape: "circle", color: "pink" }, "env2:bot5": { shape: "square", color: "teal" } })));
 // Latest message per bot, as server/publish_bot_feed.py publishes it.
-const feed = JSON.stringify({
+const feed = withAssistantIds(JSON.stringify({
   version: 1,
   bots: {
-    bot1: { role: "assistant", text: "Spawned 3 sub-threads for tonight's sync. Two finished; the deploy check is still running.", model: "Opus 5.5", computer: "studio-mac" },
+    bot1: { role: "assistant", text: "Spawned 3 sub-threads for tonight's sync. Two finished; the deploy check is still running.", model: "Opus 5.5", computer: "studio-mac", projectId: "p-ops", pinned: true, children: 2 },
     bot2: { role: "assistant", text: "Merged 2 dependency bumps. The lockfile conflict on main still needs a look.", model: "GPT-6.1 Sol", computer: "studio-mac" },
     bot3: { role: "user", text: "archive anything older than a week", model: "Sonnet 5.5", computer: "build-box" },
     bot4: { role: "assistant", text: "3 upgrades ready. Approve the 2 major bumps to open PRs." },
     bot5: { role: "assistant", text: "Queued: waiting for the 2 sub-threads to finish." },
   },
-});
+  // The bot's project's active threads (Assistant group): sub-thread counts, and
+  // "Book the team offsite venue", which sits in T3's collapsed Working shelf
+  // (no row on the page), so t3+ draws it.
+  environmentId: "env1",
+  threads: {
+    o1: { title: "Draft the release notes", projectId: "p-ops", status: "working", children: 3 },
+    o9: { title: "Book the team offsite venue", projectId: "p-ops", status: "working", children: 1 },
+    o4: { title: "Sort the shared photo album", projectId: "p-ops", status: "working" },
+    o3: { title: "Worker: check tomorrow's calendar", projectId: "p-ops", status: "idle" },
+    o2: { title: "Compare two hosting plans", projectId: "p-ops", status: "idle" },
+    o6: { title: "Pick a venue for the reunion", projectId: "p-ops", status: "idle" },
+  },
+}));
 
 // The home feed is too large for a Windows command line, so it is served as a file.
 await writeFile(new URL("./out/home-feed.json", import.meta.url), homeFeed());
@@ -117,7 +122,15 @@ const scenarios = {
   // Settings -> Appearance with the t3+ section (where bot icon/accent/label are set).
   // T3's Usage page chart with the dithered fill painted under T3's own SVG.
   "8-usage-page": { path: "/usage", seed: settings(), config, bots },
+  // Assistant group: the ops bot heads its project's active threads; the Worker: thread and the settled thread stay put.
+  // Title first on, as the owner uses it.
+  "9-assistant-group-expanded": { path: "/env1/o1", seed: { ...settings(), sidebar: { profiles: true, bots: true, titleFirst: true } }, config, bots, group: true },
+  "10-assistant-tasks": { path: "/env1/o1", seed: settings(), config, bots, group: true, tasks: true },
+  "10b-assistant-tasks-light-compact": { path: "/env1/o1", seed: settings(), config, bots, group: true, tasks: true, light: true, width: 960 },
+  "9b-assistant-group-collapsed": { path: "/env1/a1", seed: { ...settings(), sidebar: { profiles: true, bots: true, titleFirst: true } }, config, bots, group: true, groupView: { assistant: false } },
   "6-settings-appearance": { path: "/settings/appearance", seed: settings({ background: true, mode: "half-circle" }), config, bots, height: 2100 },
+  // T3-shaped browser surface with the t3+ compact/expanded presentation.
+  "10-floating-browser-preview-expanded": { path: "/env1/preview-lab", seed: settings(), preview: "expanded" },
 };
 
 try {
@@ -130,6 +143,10 @@ try {
     if (s.home) query.set("home", "1");
     if (s.view) query.set("view", JSON.stringify(s.view));
     if (s.light) query.set("light", "");
+    if (s.group) query.set("group", "");
+    if (s.tasks) query.set("tasks", "");
+    if (s.groupView) query.set("groupView", JSON.stringify(s.groupView));
+    if (s.preview) query.set("preview", s.preview);
     const url = `http://127.0.0.1:${port}${s.path}?${query}`;
     const file = `${outDir}${name}.png`;
     const profile = `${outDir}chrome-profile-${name}`;
@@ -137,7 +154,7 @@ try {
       const child = spawn(chrome, [
         "--headless", "--disable-gpu", "--hide-scrollbars", "--no-first-run",
         `--user-data-dir=${profile}`, "--force-device-scale-factor=1.5",
-        `--window-size=1333,${s.height ?? 959}`, "--virtual-time-budget=3000",
+        `--window-size=${s.width ?? 1333},${s.height ?? 959}`, "--virtual-time-budget=3000",
         `--screenshot=${file}`, url,
       ], { stdio: "ignore" });
       child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`chrome exited ${code}`))));

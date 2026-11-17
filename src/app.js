@@ -1,7 +1,7 @@
 import { createAppearancePanel, ensurePanelMounted, findAppearanceContainer } from "./appearancePanel.js";
 import { SETTINGS_ROUTE, createSettingsNavItem, findSettingsNavAnchor, findSettingsPage } from "./settingsSection.js";
 import {
-  classifyBots,
+  classifyBotsWithFallback,
   clearBotDecoration,
   decorateBotRows,
   normalizeBotPrefs,
@@ -10,14 +10,26 @@ import {
   decorateBotBreadcrumb,
   decorateBotHoverCards,
 } from "./bots.js";
+import {
+  clearAssistantGroup,
+  findThreadList,
+  mergeGroupVisibility,
+  planAssistantGroup,
+  syncAssistantGroup,
+} from "./assistantGroup.js";
 import { applyComposerTheme, syncBackdropAnchor, syncBackdropHosts, syncComposerSurfaces } from "./composer.js";
-import { botMetaText, botPreviewText } from "./botFeed.js";
-import { BOT_FEED_POLL_MS, BOT_LIMITS, DOM_CHECK_THROTTLE_MS, HOME_FEED_POLL_MS, SAMPLE_IMAGE_PATH, T3_SELECTORS, T3PLUS } from "./config.js";
+import { botMetaText } from "./botFeed.js";
+import { botSummaryText } from "./botSummary.js";
+import { BOT_FEED_POLL_MS, BOT_LIMITS, DEFAULT_BOT_MARKER, DOM_CHECK_THROTTLE_MS, HOME_FEED_POLL_MS, IMAGE_SOURCES, SAMPLE_IMAGE_PATH, T3_SELECTORS, T3PLUS, WALLPAPERS } from "./config.js";
 import { createHomeView } from "./homeWidgets.js";
+import { syncGlassMaterial, clearGlassMaterial } from "./glassMaterial.js";
+import { threadKeyFromPath, threadPath } from "./threadKey.js";
+import { DRAFT_DETAILS_ATTRIBUTES, createDraftDetails } from "./draftDetails.js";
 import { createUsageDither } from "./usageDither.js";
 import { createDemoMode } from "./demoMode.js";
 import { providerKind } from "./homeData.js";
 import { createDomWatcher } from "./domWatcher.js";
+import { createFloatingPreview } from "./floatingPreview.js";
 import { computeComposerTheme } from "./gradient.js";
 import { dataUrlToBlob, prepareImageFile } from "./imageStore.js";
 import { createProfileBar } from "./profileBar.js";
@@ -25,7 +37,6 @@ import {
   ALL_PROFILE_ID,
   normalizeProfileView,
   resolveActiveProfile,
-  threadKeyFromPath,
   threadToRestore,
 } from "./profiles.js";
 import { emptyConfig, parseT3PlusConfigText } from "./remoteConfig.js";
@@ -37,7 +48,7 @@ import {
   findLogoRow,
   findProfileBarSlot,
   findSidebarInner,
-  isThreadInProfile,
+  isProfileMember,
   scanSidebar,
 } from "./sidebar.js";
 
@@ -52,17 +63,22 @@ import {
  *   profileViewStore,                      profiles.js
  *   configProvider,                        remoteConfig.js (read-only t3plus.json)
  *   botStore,                              bots.js
- *   botFeed?,                              botFeed.js (latest message per bot, read-only)
+ *   botFeed?,                              botFeed.js (bot state and schedules, read-only)
  *   backdropRenderer?,                     backdropRenderer.js (canvas dither; omitted in jsdom tests)
  *   homeFeed?,                             homeData.js createHomeFeed (home widget data, read-only)
+ *   tasksFeed?, calendarFeed?, immichFeed?  draft details widgets (draftDetails.js)
+ *   assistantGroup?,                       personal.js ASSISTANT_GROUP (omitted in most tests)
+ *   immichConfig?,                         personal.js IMMICH
+ *   groupViewStore,                        assistantGroup.js createGroupViewStore (Assistant open/closed)
  *   assetUrl(path) -> string,              chrome.runtime.getURL in the extension
  *   prepareImage?(file, limits) -> record, defaults to prepareImageFile
  *   isAlive?() -> boolean, throttleMs?,
  * }
  */
 export function createT3Plus(deps) {
-  const { win, doc, settingsStore, imageStore, profileViewStore, configProvider, botStore, assetUrl } = deps;
+  const { win, doc, settingsStore, imageStore, profileViewStore, configProvider, botStore, groupViewStore, assetUrl } = deps;
   const prepareImage = deps.prepareImage ?? prepareImageFile;
+  const assistantGroup = deps.assistantGroup ?? null;
 
   const state = {
     settings: defaultSettings(),
@@ -77,8 +93,13 @@ export function createT3Plus(deps) {
     knownBots: {},
     botMessage: "",
     bots: [],
+    /** Marker that produced the current bot classification. */
+    botMarker: DEFAULT_BOT_MARKER,
     botFeed: null,
     homeFeed: null,
+    groupView: { assistant: true },
+    /** The Assistant group as last drawn (null when off). */
+    group: null,
   };
   let objectUrl = null;
   let objectUrlFor = null;
@@ -86,6 +107,8 @@ export function createT3Plus(deps) {
   let lastScan = null;
   let lastRecordedThread = null;
   const unsubscribers = [];
+  /** For storage writes and reloads nothing waits on: the failure is logged and the page keeps its current state. */
+  const warnStorage = (error) => win.console?.warn?.("t3+: could not read or write extension storage", error);
 
   function resolveImageUrl() {
     const { imageSource } = state.settings.composerGradient;
@@ -97,31 +120,40 @@ export function createT3Plus(deps) {
       }
       return objectUrl;
     }
-    return assetUrl(SAMPLE_IMAGE_PATH);
+    return assetUrl(WALLPAPERS.find(({ id }) => id === imageSource)?.path ?? SAMPLE_IMAGE_PATH);
   }
 
-  /** Bots for the Settings list: every bot seen in the sidebar plus any with saved settings. */
   function botsForPanel() {
-    const marker = state.loaded.config.botMarker;
+    const marker = state.botMarker;
     const keys = new Set([...Object.keys(state.knownBots), ...Object.keys(state.botPrefs)]);
     return [...keys].sort().map((key) => {
       const title = state.knownBots[key]?.title ?? "";
       const titleLabel = parseBotTitle(title, marker)?.label ?? "";
       const prefs = normalizeBotPrefs(state.botPrefs[key], key);
       const view = resolveBotPresentation({ key, titleLabel }, prefs);
-      return { key, title, titleLabel, prefs, view, preview: botPreviewText(state.botFeed, key), meta: botMetaText(state.botFeed, key) };
+      return { key, title, titleLabel, prefs, view, preview: botSummaryText(state.botFeed, key), meta: botMetaText(state.botFeed, key) };
+    });
+  }
+
+  // The Settings panel is drawn only while it is on the page: its bot editors
+  // paint a face for every shape and color swatch, too costly to redo while T3
+  // loads or on every bot feed update. Mounting it draws it fresh.
+  let panelStale = true;
+  function renderPanel() {
+    panelStale = false;
+    panel.update({
+      ...state,
+      config: { ...state.loaded, profiles: state.loaded.config.profiles, local: state.local },
+      bots: botsForPanel(),
+      botMarker: state.botMarker,
     });
   }
 
   function render() {
     state.imageUrl = resolveImageUrl();
     applyComposerTheme(doc, computeComposerTheme(state.settings, state.imageUrl));
-    panel.update({
-      ...state,
-      config: { ...state.loaded, profiles: state.loaded.config.profiles, local: state.local },
-      bots: botsForPanel(),
-      botMarker: state.loaded.config.botMarker,
-    });
+    if (panel.element.isConnected) renderPanel();
+    else panelStale = true;
     watcher.schedule();
   }
 
@@ -130,21 +162,36 @@ export function createT3Plus(deps) {
   }
 
   function isMember(profile, key) {
-    if (!profile) return true;
-    const thread = lastScan?.threads.find((t) => t.key === key);
-    if (!thread) return profile.threads.includes(key);
-    return isThreadInProfile(thread, profile) || (profile.showBots && state.bots.some((b) => b.key === key));
+    const thread = lastScan?.threads.find((t) => t.key === key) ?? null;
+    return isProfileMember(profile, key, { thread, bot: Boolean(thread) && state.bots.some((b) => b.key === key) });
   }
 
   function findThreadRow(key) {
     return lastScan?.threads.find((t) => t.key === key && t.row.isConnected)?.row ?? null;
   }
 
-  /** Opens a thread through T3's own row, so T3's router and click handling stay in charge. */
-  function openThread(key) {
+  /**
+   * Opens a thread through T3's own row, so T3's router and click handling
+   * stay in charge. With no row on screen (an Assistant group stand-in), it
+   * moves T3's router forward one entry, as a link click would.
+   */
+  function openThread(key, { navigate = false } = {}) {
     const row = findThreadRow(key);
-    if (!row) return false;
-    row.click();
+    if (row) {
+      row.click();
+      return true;
+    }
+    if (!navigate) return false;
+    const path = threadPath(key);
+    if (win.location.pathname === path) return true;
+    // T3's router (TanStack history) follows popstate and reads its entry index
+    // from history.state; the next index reads as "forward" to the new path.
+    const current = win.history.state && typeof win.history.state === "object" ? win.history.state : {};
+    const index = Number(current.__TSR_index);
+    const entryKey = Math.random().toString(36).slice(2, 10);
+    const next = { ...current, key: entryKey, __TSR_key: entryKey, __TSR_index: Number.isFinite(index) ? index + 1 : 1 };
+    win.history.pushState(next, "", path);
+    win.dispatchEvent(new win.PopStateEvent("popstate", { state: next }));
     return true;
   }
 
@@ -160,15 +207,16 @@ export function createT3Plus(deps) {
     if (!changed) return;
     const keep = Object.entries(next)
       .sort((a, b) => b[1].seenAt - a[1].seenAt)
-      .slice(0, BOT_LIMITS.maxBots * 2);
+      .slice(0, BOT_LIMITS.maxKnownBots);
     state.knownBots = Object.fromEntries(keep);
-    botStore.saveKnown(state.knownBots).catch(() => {});
+    botStore.saveKnown(state.knownBots).catch(warnStorage);
   }
 
   function syncSidebar() {
     const inner = findSidebarInner(doc);
     if (!inner) {
       lastScan = null;
+      state.botMarker = state.loaded.config.botMarker;
       if (bar.element.isConnected) bar.element.remove();
       return;
     }
@@ -176,38 +224,60 @@ export function createT3Plus(deps) {
     lastScan = scan;
     const { sidebar } = state.settings;
 
-    const bots = sidebar.bots ? classifyBots(scan, state.loaded.config.botMarker) : [];
+    const { bots, marker } = sidebar.bots ? classifyBotsWithFallback(scan, state.loaded.config.botMarker) : { bots: [], marker: state.loaded.config.botMarker };
+    state.botMarker = marker;
     state.bots = bots;
     const shown = demoBots(bots);
+    const routeKey = threadKeyFromPath(win.location.pathname);
+    const plan =
+      sidebar.bots && assistantGroup
+        ? planAssistantGroup({ scan, group: assistantGroup, bots, feed: state.botFeed, knownBots: state.knownBots, marker, routeKey, view: state.groupView })
+        : null;
+    state.group = plan;
     if (sidebar.bots) {
-      decorateBotRows(doc, scan, shown, state.botPrefs, (key) => (demoOn() ? demo.label("botMessage", key) : botPreviewText(state.botFeed, key)));
+      // The Assistant's second line is its threads' summary (syncAssistantGroup, below), not a status line.
+      decorateBotRows(doc, scan, shown, state.botPrefs, (key) => botSummaryText(state.botFeed, key, bots.find((bot) => bot.key === key)), {
+        ownedSecondLine: new Set(plan ? [plan.header.key] : []),
+      });
       rememberBots(bots);
     } else {
       clearBotDecoration(inner);
     }
 
-    const routeKey = threadKeyFromPath(win.location.pathname);
     const activeBot = shown.find((bot) => bot.key === routeKey) ?? null;
     decorateBotBreadcrumb(doc, activeBot ? { ...activeBot, prefs: state.botPrefs[activeBot.key] } : null);
     syncHoverCards();
     const profile = activeProfile();
-    const visibility = computeProfileVisibility(scan, profile, {
-      routeThreadKey: routeKey,
-      botKeys: new Set(bots.map((b) => b.key)),
-    });
+    const groupVisible = Boolean(plan) && isProfileMember(profile, plan.header.key, { thread: plan.header.thread, bot: true });
+    const visibility = mergeGroupVisibility(
+      computeProfileVisibility(scan, profile, {
+        routeThreadKey: routeKey,
+        botKeys: new Set(bots.map((b) => b.key)),
+      }),
+      plan,
+      groupVisible,
+    );
     applyProfileVisibility(inner, visibility);
+    syncAssistantGroup({
+      doc,
+      list: plan ? findThreadList(inner, scan) : null,
+      plan,
+      visible: groupVisible,
+      botPrefs: state.botPrefs,
+      text: groupText,
+      onToggle: actions.toggleAssistant,
+      onOpen: (key) => openThread(key, { navigate: true }),
+    });
 
-    // Remember the last thread opened under the active tab (only threads that belong to it).
     if (routeKey && routeKey !== lastRecordedThread && scan.threads.some((t) => t.key === routeKey)) {
       lastRecordedThread = routeKey;
       const activeId = profile?.id ?? ALL_PROFILE_ID;
       if (isMember(profile, routeKey) && state.view.lastThreadByProfile[activeId] !== routeKey) {
         state.view = { ...state.view, lastThreadByProfile: { ...state.view.lastThreadByProfile, [activeId]: routeKey } };
-        profileViewStore.save(state.view).catch(() => {});
+        profileViewStore.save(state.view).catch(warnStorage);
       }
     }
 
-    // The profile strip is the only element t3+ adds to the sidebar.
     const slot = sidebar.profiles ? findProfileBarSlot(inner) : null;
     if (!slot) {
       if (bar.element.isConnected) bar.element.remove();
@@ -226,6 +296,11 @@ export function createT3Plus(deps) {
     });
   }
 
+  /** Text for the rows t3+ draws itself, covered in screenshot mode like T3's own. */
+  function groupText(kind, value) {
+    return demoOn() ? demo.label(kind, value) : value;
+  }
+
   /** Feeds the canvas dither renderer: the conversation pane, or the Settings preview on the Appearance page. */
   function syncDither() {
     const renderer = deps.backdropRenderer;
@@ -242,20 +317,18 @@ export function createT3Plus(deps) {
       const card = hero.overlay.querySelector(T3_SELECTORS.composerSurface) ?? hero.stack;
       const p = pane.getBoundingClientRect();
       const c = card.getBoundingClientRect();
-      if (p.height > 0 && c.height > 0) cy = Math.max(0, Math.min(1.2, (c.top + c.height * 0.9 - p.top) / p.height)); // around the composer
+      if (p.height > 0 && c.height > 0) cy = Math.max(0, Math.min(1.2, (c.top + c.height * 0.9 - p.top) / p.height));
     }
     renderer.update({
       mode: g.dither ? theme.mode : null,
       settings: state.settings,
-      imageSrc: g.imageSource === "upload" && state.image ? state.image.dataUrl : assetUrl(SAMPLE_IMAGE_PATH),
+      imageSrc: g.imageSource === "upload" && state.image ? state.image.dataUrl : state.imageUrl,
       host: pane ?? preview,
       cx: pane && Number.isFinite(anchor) ? anchor / 100 : 0.5,
       cy,
       wide: Boolean(pane && hero),
     });
   }
-
-  // ---------- Bot hover cards ----------
 
   function syncHoverCards() {
     if (!state.settings.sidebar.bots || !state.bots.length) return;
@@ -280,7 +353,7 @@ export function createT3Plus(deps) {
         if (watched.has(el)) continue;
         watched.add(el);
         // The app root and t3+'s own nodes are not popups.
-        if (el.id === "root" || el.hasAttribute(T3PLUS.ownedAttr) || el.querySelector("[data-workspace-area], [data-slot='sidebar-wrapper']")) continue;
+        if (el.id === "root" || el.hasAttribute(T3PLUS.ownedAttr) || el.querySelector(`[data-workspace-area], ${T3_SELECTORS.sidebarWrapper}`)) continue;
         portalObserver.observe(el, { childList: true, subtree: true, characterData: true });
       }
     };
@@ -291,8 +364,6 @@ export function createT3Plus(deps) {
     popupObserver.observe(body, { childList: true });
     watchPortals();
   }
-
-  // ---------- Home widgets (new-thread page) ----------
 
   /** T3's draft hero: the composer overlay is centered (items-center) instead of docked at the bottom. */
   function findHero() {
@@ -323,7 +394,6 @@ export function createT3Plus(deps) {
       // never wider than the room on its narrower side, so it stays inside the pane.
       const center = s.left + s.width / 2;
       const room = 2 * Math.min(center - p.left, p.left + p.width - center) - 48;
-      // As wide as T3's composer (the stack), within the room on its narrower side.
       setRootVar("--t3plus-home-width", `${Math.round(Math.max(0, Math.min(s.width, room)))}px`);
     }
     // Place the whole hero block (headline, composer, widgets) a little above
@@ -338,14 +408,11 @@ export function createT3Plus(deps) {
       setRootVar("--t3plus-hero-top", `${Math.round(top + above)}px`);
     }
     if (p.height > 0) setRootVar("--t3plus-home-max-height", `${Math.round(Math.max(160, p.top + p.height - s.top - s.height - 40))}px`);
-    // Fetched only while the widgets are on screen: on arrival when the copy is
-    // older than one poll, then every poll while they stay.
-    if (deps.homeFeed && !homeLoading && (!state.homeFeed || nowMs() - lastHomeFetch > HOME_FEED_POLL_MS)) refreshHomeFeed();
+    maybeRefreshHome();
     home.update({ feed: state.homeFeed, profile: activeProfile() });
   }
 
-  // ---------- Screenshot mode ----------
-  // A read-only cover over T3's visible text (demoMode.js): stand-in thread
+  // Screenshot mode: a read-only cover over T3's visible text (demoMode.js): stand-in thread
   // titles, projects, branches, machines, profiles, bot names and message
   // text. Toggled in Settings -> t3+ or with Alt+Shift+D.
   const demo = createDemoMode(doc);
@@ -366,7 +433,6 @@ export function createT3Plus(deps) {
     actions.setDemo(!demoOn());
   }
 
-  // ---------- Thread details: the current provider's pool ----------
   // When T3's thread details show "Usage limits", t3+ replaces its rows with
   // the pool chart of the provider in the composer (Codex or Claude), the same
   // card as on the home page. On the new-thread page the section is hidden by
@@ -386,15 +452,22 @@ export function createT3Plus(deps) {
     }
     if (detailsPool.element.parentElement !== section || section.lastElementChild !== detailsPool.element) section.append(detailsPool.element);
     if (section.getAttribute(T3PLUS.detailsPoolAttr) !== kind) section.setAttribute(T3PLUS.detailsPoolAttr, kind);
-    if (deps.homeFeed && !homeLoading && (!state.homeFeed || nowMs() - lastHomeFetch > HOME_FEED_POLL_MS)) refreshHomeFeed();
+    maybeRefreshHome();
     detailsPool.update({ feed: state.homeFeed, kind });
   }
 
+  // The home feed is read only while its widgets are on screen (the new-thread
+  // page, or the pool card in thread details): on arrival when the copy is
+  // older than one poll, every poll while they stay, and when the tab comes back.
   let homeLoading = false;
   let lastHomeFetch = -Infinity;
   const nowMs = () => win.performance?.now?.() ?? Date.now();
+  const homeFeedWanted = () => Boolean(deps.homeFeed) && state.settings.home.widgets && Boolean(findHero() || detailsPool.element.isConnected);
+  function maybeRefreshHome() {
+    if (!homeLoading && (!state.homeFeed || nowMs() - lastHomeFetch > HOME_FEED_POLL_MS) && homeFeedWanted()) refreshHomeFeed();
+  }
+  /** Callers check homeFeedWanted() first. */
   async function refreshHomeFeed() {
-    if (!deps.homeFeed || !state.settings.home.widgets) return;
     homeLoading = true;
     lastHomeFetch = nowMs();
     try {
@@ -406,13 +479,10 @@ export function createT3Plus(deps) {
     watcher.schedule();
   }
 
-
-  // ---------- Compact sidebar header ----------
-  // t3+ marks T3's logo row (the "T3 Code home" link's own wrapper, see
-  // findLogoRow) and CSS hides it; while the sidebar is open in a chat, CSS
-  // also moves T3's
-  // own fixed sidebar control ([data-sidebar-control]) to the header, right
-  // before the breadcrumbs. Nothing is moved in the DOM: T3 keeps its button,
+  // Compact sidebar header: t3+ marks T3's logo row (the "T3 Code home" link's
+  // own wrapper, see findLogoRow) and CSS hides it; while the sidebar is open in
+  // a chat, CSS also moves T3's own fixed sidebar control ([data-sidebar-control])
+  // to the header, right before the breadcrumbs. Nothing is moved in the DOM: T3 keeps its button,
   // its shortcut and its collapsed layout.
   let sidebarResize = null;
   let sidebarObserved = null;
@@ -424,11 +494,11 @@ export function createT3Plus(deps) {
     const logoRows = new Set([...doc.querySelectorAll(T3_SELECTORS.sidebarInner)].map(findLogoRow).filter(Boolean));
     for (const el of doc.querySelectorAll(`[${T3PLUS.logoRowAttr}]`)) if (!logoRows.has(el)) el.removeAttribute(T3PLUS.logoRowAttr);
     for (const el of logoRows) if (!el.hasAttribute(T3PLUS.logoRowAttr)) el.setAttribute(T3PLUS.logoRowAttr, "");
-    const wrapper = doc.querySelector('[data-slot="sidebar-wrapper"]');
+    const wrapper = doc.querySelector(T3_SELECTORS.sidebarWrapper);
     const inner = findSidebarInner(doc) ?? doc.querySelector(T3_SELECTORS.sidebarInner);
     const right = inner?.getBoundingClientRect().right ?? 0;
     const inHeader =
-      on && wrapper?.getAttribute("data-sidebar-state") === "expanded" && right > 40 && doc.querySelector("[data-chat-header]") && doc.querySelector("[data-sidebar-control]");
+      on && wrapper?.getAttribute("data-sidebar-state") === "expanded" && right > 40 && doc.querySelector(T3_SELECTORS.chatHeader) && doc.querySelector(T3_SELECTORS.sidebarControl);
     root.toggleAttribute(T3PLUS.controlInHeaderAttr, Boolean(inHeader));
     if (inHeader) setRootVar("--t3plus-sidebar-right", `${Math.round(right)}px`);
     // Dragging the sidebar wider changes no DOM we watch: follow its size.
@@ -440,19 +510,18 @@ export function createT3Plus(deps) {
     }
   }
 
-  // ---------- t3+ settings section ----------
   // An owned "t3+" entry after Appearance in T3's Settings sidebar. Opening it
   // is a view mode (see settingsSection.js); it closes on any T3 settings link
   // or when the path changes.
   const settingsNav = createSettingsNavItem(doc, () => {
     settingsOpenAt = win.location.pathname;
     checkDom();
-    doc.querySelector("[data-settings-page-scroll]")?.scrollTo?.(0, 0);
+    doc.querySelector(T3_SELECTORS.settingsPageScroll)?.scrollTo?.(0, 0);
   });
   let settingsOpenAt = null;
   let openedFromHash = false;
   function onSettingsClick(event) {
-    const link = event.target?.closest?.("[data-settings-section]");
+    const link = event.target?.closest?.(T3_SELECTORS.settingsSectionLink);
     if (!link || link.hasAttribute(T3PLUS.ownedAttr) || settingsOpenAt === null) return;
     settingsOpenAt = null;
     syncSettingsSection();
@@ -479,8 +548,10 @@ export function createT3Plus(deps) {
     const open = Boolean(anchor && container);
     settingsNav.setActive(open);
     doc.documentElement.toggleAttribute(T3PLUS.settingsAttr, open);
-    if (container) ensurePanelMounted(container, panel.element);
-    else if (panel.element.isConnected) panel.element.remove();
+    if (container) {
+      ensurePanelMounted(container, panel.element);
+      if (panelStale) renderPanel();
+    } else if (panel.element.isConnected) panel.element.remove();
   }
 
   function checkDom() {
@@ -492,6 +563,7 @@ export function createT3Plus(deps) {
     }
     syncSettingsSection();
     const result = syncComposerSurfaces(doc, state.settings.glass.enabled);
+    syncGlassMaterial(doc, win);
     syncBackdropHosts(doc, state.settings.composerGradient.enabled);
     syncBackdropAnchor(doc);
     syncDither();
@@ -503,11 +575,11 @@ export function createT3Plus(deps) {
     syncCompactHeader();
     syncHome();
     syncThreadDetails();
+    floatingPreview.sync();
+    draftDetails.sync();
     usageDither.sync();
     syncDemo();
   }
-
-  // ---------- Settings ----------
 
   // Preview changes (slider drags, color picking) repaint without writing storage.
   function preview(update) {
@@ -518,14 +590,15 @@ export function createT3Plus(deps) {
   const glass = (patch) => (s) => ({ ...s, glass: { ...s.glass, ...patch } });
 
   // Saves run one at a time and always write the latest local state, so quick
-  // successive changes (toggle, then mode) cannot overwrite each other.
+  // successive changes (toggle, then mode) cannot overwrite each other. A
+  // failed save is logged; callers that await persist() still see it reject.
   let saveQueue = Promise.resolve();
   let pendingSaves = 0;
   function persist(update, message = "") {
     preview(update);
     pendingSaves += 1;
     saveQueue = saveQueue
-      .catch(() => {})
+      .catch(() => {}) // an earlier failed save (already logged) does not stop this one
       .then(() => settingsStore.save(state.settings))
       .finally(() => {
         pendingSaves -= 1;
@@ -534,6 +607,7 @@ export function createT3Plus(deps) {
         state.message = message;
         render();
       });
+    saveQueue.catch(warnStorage);
     return saveQueue;
   }
 
@@ -567,7 +641,10 @@ export function createT3Plus(deps) {
     setDitherSize: (ditherSize) => persist(gradient({ ditherSize })),
     setDitherStyle: (ditherStyle) => persist(gradient({ ditherStyle })),
     setLook: (look) => persist(gradient(look === "smooth" ? { dither: false } : { dither: true, ditherStyle: look })),
-    useSample: () => persist(gradient({ imageSource: "sample" }), "Using the packaged sample image."),
+    setImageSource: (imageSource) => {
+      if (!IMAGE_SOURCES.includes(imageSource) || (imageSource === "upload" && !state.image)) return;
+      return persist(gradient({ imageSource }));
+    },
     setGlass: (enabled) => persist(glass({ enabled })),
     previewGlassStrength: (strength) => preview(glass({ strength })),
     setGlassStrength: (strength) => persist(glass({ strength })),
@@ -589,7 +666,7 @@ export function createT3Plus(deps) {
     async removeImage() {
       await imageStore.remove();
       state.image = null;
-      await persist(gradient({ imageSource: "sample" }), "Removed the uploaded image.");
+      await persist(gradient(state.settings.composerGradient.imageSource === "upload" ? { imageSource: "sample" } : {}), "Removed the uploaded image.");
     },
     async exportSettings() {
       if (!deps.backup) return;
@@ -622,13 +699,12 @@ export function createT3Plus(deps) {
       render();
     },
     async reset() {
-      await saveQueue.catch(() => {});
+      await saveQueue.catch(() => {}); // wait for pending saves; a failure was already logged
       state.settings = await settingsStore.reset();
       state.message = "t3+ appearance reset.";
       render();
     },
 
-    // ---------- Profiles ----------
     async selectProfile(id) {
       const exists = id === ALL_PROFILE_ID || state.loaded.config.profiles.some((p) => p.id === id);
       if (!exists) return;
@@ -648,6 +724,12 @@ export function createT3Plus(deps) {
       await profileViewStore.save(state.view);
     },
     refreshConfig: () => reloadConfig({ refresh: true, message: "Reloaded." }),
+
+    toggleAssistant() {
+      state.groupView = { ...state.groupView, assistant: !state.groupView.assistant };
+      watcher.flush();
+      groupViewStore.save(state.groupView).catch(warnStorage);
+    },
     async setConfigSource(use) {
       await saveLocal({ use });
       await reloadConfig({ refresh: true });
@@ -664,7 +746,6 @@ export function createT3Plus(deps) {
       await reloadConfig({ refresh: false, message: `Saved the local override.${note}` });
     },
 
-    // ---------- Bots ----------
     async updateBot(key, patch) {
       try {
         state.botPrefs = await botStore.update(key, patch);
@@ -683,10 +764,18 @@ export function createT3Plus(deps) {
     },
   };
 
-  const panel = createAppearancePanel(doc, actions);
+  const panel = createAppearancePanel(doc, actions, { assetUrl });
   const home = createHomeView(doc);
   const detailsPool = createHomeView(doc, { variant: "pool" });
+  const draftDetails = createDraftDetails({
+    win, doc, now: nowMs, schedule: () => watcher.schedule(),
+    feeds: { tasks: deps.tasksFeed, calendar: deps.calendarFeed, immich: deps.immichFeed },
+    assistant: { projectId: assistantGroup?.projectId, environmentId: () => state.botFeed?.environmentId },
+    immich: deps.immichConfig,
+    homeRect: () => (home.element.isConnected ? home.element.getBoundingClientRect() : null),
+  });
   const usageDither = createUsageDither(doc);
+  const floatingPreview = createFloatingPreview({ win, doc });
 
   const bar = createProfileBar(doc, actions);
   // Streaming chat text lands inside T3's message list, which holds nothing
@@ -694,7 +783,7 @@ export function createT3Plus(deps) {
   let timeline = null;
   let timelineLookup = -Infinity;
   const isNoise = (node) => {
-    if (state.settings.demo.enabled) return false; // screenshot mode covers message text too
+    if (demoOn()) return false; // screenshot mode covers message text too
     if (!timeline?.isConnected) {
       // Look it up again at most every 250 ms (pages without a chat have none).
       const t = win.performance?.now?.() ?? Date.now();
@@ -704,23 +793,28 @@ export function createT3Plus(deps) {
     }
     return Boolean(timeline && timeline !== node && timeline.contains(node));
   };
-  const watcher = createDomWatcher({ win, doc, check: checkDom, throttleMs: deps.throttleMs ?? DOM_CHECK_THROTTLE_MS, isNoise });
+  const watcher = createDomWatcher({ win, doc, check: checkDom, throttleMs: deps.throttleMs ?? DOM_CHECK_THROTTLE_MS, isNoise,
+    attributeFilter: DRAFT_DETAILS_ATTRIBUTES,
+  });
 
-  // ---------- Bot feed (latest message per bot) ----------
   let feedTimer = null;
   async function refreshBotFeed() {
     if (!deps.botFeed || !state.settings.sidebar.bots) return;
     const next = await deps.botFeed.load().catch(() => null);
-    if (!next && state.botFeed) return; // keep the last good copy on a failed read
+    if (!next && state.botFeed) return;
     state.botFeed = next;
     render();
   }
 
+  /** The feed is read while bots are on screen, or the Assistant group is (its stand-ins and counts). */
+  const botFeedWanted = () => state.bots.length > 0 || Boolean(state.group);
+
   const onVisibility = () => {
     if (doc.visibilityState !== "visible") return;
-    if (configProvider.isStale(state.loaded)) reloadConfig({ refresh: true }).catch(() => {});
-    if (state.bots.length) refreshBotFeed();
-    if (findHero() || detailsPool.element.isConnected) refreshHomeFeed();
+    if (configProvider.isStale(state.loaded)) reloadConfig({ refresh: true }).catch(warnStorage);
+    if (botFeedWanted()) refreshBotFeed();
+    if (homeFeedWanted()) refreshHomeFeed();
+    watcher.schedule();
   };
 
   const api = {
@@ -733,20 +827,21 @@ export function createT3Plus(deps) {
       // A copy orphaned by an extension reload may have left its UI behind.
       doc.getElementById(panel.element.id)?.remove();
       doc.getElementById(bar.element.id)?.remove();
-      for (const old of doc.querySelectorAll("[data-t3plus-settings-nav]")) old.closest("li")?.remove();
+      for (const old of doc.querySelectorAll(`[${T3PLUS.settingsNavAttr}]`)) old.closest("li")?.remove();
       doc.addEventListener("click", onSettingsClick, true);
       unsubscribers.push(() => doc.removeEventListener("click", onSettingsClick, true));
       doc.addEventListener("keydown", onDemoKey, true);
       unsubscribers.push(() => doc.removeEventListener("keydown", onDemoKey, true));
-      const [settings, image, view, botPrefs, knownBots, local] = await Promise.all([
+      const [settings, image, view, botPrefs, knownBots, local, groupView] = await Promise.all([
         settingsStore.load(),
         imageStore.load(),
         profileViewStore.load(),
         botStore.load(),
         botStore.loadKnown(),
         configProvider.readLocal(),
+        groupViewStore.load(),
       ]);
-      Object.assign(state, { settings, image, view, botPrefs, knownBots, local });
+      Object.assign(state, { settings, image, view, botPrefs, knownBots, local, groupView });
       // Paint from the cached server copy first; refresh from the network right after.
       state.loaded = await configProvider.load({ refresh: false });
       unsubscribers.push(
@@ -769,6 +864,11 @@ export function createT3Plus(deps) {
           state.botPrefs = next;
           render();
         }),
+        groupViewStore.subscribe((next) => {
+          if (next.assistant === state.groupView.assistant) return;
+          state.groupView = next;
+          watcher.schedule();
+        }),
         botStore.subscribeKnown((next) => {
           state.knownBots = next;
           render();
@@ -776,9 +876,18 @@ export function createT3Plus(deps) {
         configProvider.subscribeLocal((value) => {
           // This tab's own write already reloaded; only follow other tabs.
           if (ownLocalWrites > 0 || (value?.use === state.local.use && value?.text === state.local.text)) return;
-          reloadConfig({ refresh: false }).catch(() => {});
+          reloadConfig({ refresh: false }).catch(warnStorage);
         }),
       );
+      const materialObserver = new win.MutationObserver(() => watcher.schedule());
+      materialObserver.observe(doc.documentElement, { attributes: true, attributeFilter: ["class", "data-theme", "data-theme-id", "style"] });
+      unsubscribers.push(() => materialObserver.disconnect());
+      for (const query of ["(prefers-reduced-transparency: reduce)", "(forced-colors: active)"]) {
+        const media = win.matchMedia?.(query);
+        const onMaterialPreference = () => watcher.schedule();
+        media?.addEventListener?.("change", onMaterialPreference);
+        unsubscribers.push(() => media?.removeEventListener?.("change", onMaterialPreference));
+      }
       doc.addEventListener("visibilitychange", onVisibility);
       unsubscribers.push(() => doc.removeEventListener("visibilitychange", onVisibility));
       const onResize = () => watcher.schedule();
@@ -787,7 +896,7 @@ export function createT3Plus(deps) {
       if (deps.botFeed) {
         state.botFeed = await deps.botFeed.readCache().catch(() => null);
         feedTimer = win.setInterval(() => {
-          if (doc.visibilityState !== "hidden" && state.bots.length) refreshBotFeed();
+          if (doc.visibilityState !== "hidden" && botFeedWanted()) refreshBotFeed();
         }, BOT_FEED_POLL_MS);
         unsubscribers.push(() => win.clearInterval(feedTimer));
         refreshBotFeed();
@@ -795,21 +904,24 @@ export function createT3Plus(deps) {
       if (deps.homeFeed) {
         state.homeFeed = await deps.homeFeed.readCache().catch(() => null);
         const homeTimer = win.setInterval(() => {
-          if (doc.visibilityState !== "hidden" && state.settings.home.widgets && (findHero() || detailsPool.element.isConnected)) refreshHomeFeed();
+          if (doc.visibilityState !== "hidden" && homeFeedWanted()) refreshHomeFeed();
         }, HOME_FEED_POLL_MS);
         unsubscribers.push(() => win.clearInterval(homeTimer));
       }
+      draftDetails.start();
       watchPopups();
       unsubscribers.push(() => {
         popupObserver?.disconnect();
         portalObserver?.disconnect();
       });
+      floatingPreview.start();
       watcher.start();
       render();
-      if (state.loaded.source === "cache") reloadConfig({ refresh: true }).catch(() => {});
+      if (state.loaded.source === "cache") reloadConfig({ refresh: true }).catch(warnStorage);
     },
     stop() {
       watcher.stop();
+      floatingPreview.stop();
       for (const unsubscribe of unsubscribers.splice(0)) unsubscribe();
       panel.element.remove();
       settingsNav.element.remove();
@@ -818,6 +930,7 @@ export function createT3Plus(deps) {
       home.destroy();
       detailsPool.element.remove();
       detailsPool.destroy();
+      draftDetails.stop();
       usageDither.clear();
       for (const el of doc.querySelectorAll(`[${T3PLUS.detailsPoolAttr}]`)) el.removeAttribute(T3PLUS.detailsPoolAttr);
       sidebarResize?.disconnect();
@@ -829,8 +942,10 @@ export function createT3Plus(deps) {
       doc.documentElement.removeAttribute(T3PLUS.controlInHeaderAttr);
       doc.documentElement.removeAttribute(T3PLUS.homeAttr);
       clearProfileVisibility(doc.documentElement);
+      clearAssistantGroup(doc.documentElement);
       clearBotDecoration(doc.documentElement);
       syncComposerSurfaces(doc, false);
+      clearGlassMaterial(doc);
       syncBackdropHosts(doc, false);
       deps.backdropRenderer?.clear();
       const cleared = [...Object.keys(computeComposerTheme(state.settings, null).vars), "--t3plus-composer-x"].map((name) => [name, null]);

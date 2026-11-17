@@ -1,6 +1,5 @@
-import { DEFAULT_SETTINGS, GRADIENT_MODES, IMAGE_SOURCES, STORAGE_KEYS } from "./config.js";
-
-const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+import { DEFAULT_SETTINGS, DITHER_SIZES, DITHER_STYLES, GRADIENT_MODES, IMAGE_SOURCES, STORAGE_KEYS, normalizeAccent } from "./config.js";
+import { createKeyStore } from "./storage.js";
 
 const isObject = (value) => Boolean(value) && typeof value === "object" && !Array.isArray(value);
 const bool = (value, fallback) => (typeof value === "boolean" ? value : fallback);
@@ -8,12 +7,6 @@ const percent = (value, fallback) => {
   const n = Number(value);
   return Number.isFinite(n) ? Math.min(100, Math.max(0, Math.round(n))) : fallback;
 };
-
-/** "theme" or a lowercase #rrggbb, else the fallback. */
-export function normalizeAccent(value, fallback = "theme") {
-  if (value === "theme") return "theme";
-  return typeof value === "string" && HEX_COLOR.test(value) ? value.toLowerCase() : fallback;
-}
 
 /**
  * Returns a complete, valid settings object from anything read out of storage.
@@ -30,7 +23,7 @@ export function normalizeSettings(raw) {
 
   const d = DEFAULT_SETTINGS;
   return {
-    version: 2,
+    version: d.version,
     composerGradient: {
       enabled: bool(g.enabled, d.composerGradient.enabled),
       mode: GRADIENT_MODES.includes(g.mode) ? g.mode : d.composerGradient.mode,
@@ -38,8 +31,8 @@ export function normalizeSettings(raw) {
       intensity: percent(g.intensity, d.composerGradient.intensity),
       imageSource: IMAGE_SOURCES.includes(g.imageSource) ? g.imageSource : d.composerGradient.imageSource,
       dither: bool(g.dither, d.composerGradient.dither),
-      ditherSize: ["fine", "medium", "large"].includes(g.ditherSize) ? g.ditherSize : d.composerGradient.ditherSize,
-      ditherStyle: ["bayer", "grain", "spectrum"].includes(g.ditherStyle) ? g.ditherStyle : d.composerGradient.ditherStyle,
+      ditherSize: DITHER_SIZES.includes(g.ditherSize) ? g.ditherSize : d.composerGradient.ditherSize,
+      ditherStyle: DITHER_STYLES.includes(g.ditherStyle) ? g.ditherStyle : d.composerGradient.ditherStyle,
     },
     glass: {
       enabled: bool(glass.enabled, d.glass.enabled),
@@ -67,50 +60,18 @@ export function defaultSettings() {
 /**
  * Local visual preferences, persisted in an extension storage area
  * (chrome.storage.local in the extension; a fake in tests). Nothing here is
- * sent to T3's server.
+ * sent to T3's server. subscribe(listener) reports saves from another tab or
+ * this one.
  *
  * @param {chrome.storage.StorageArea} area
  * @param {chrome.storage.StorageChangedEvent | undefined} changedEvent
  */
 export function createSettingsStore(area, changedEvent) {
-  const key = STORAGE_KEYS.settings;
-
-  async function load() {
-    const result = await area.get(key);
-    return normalizeSettings(result?.[key]);
-  }
-
-  async function save(settings) {
-    const normalized = normalizeSettings(settings);
-    await area.set({ [key]: normalized });
-    return normalized;
-  }
-
+  const store = createKeyStore(area, changedEvent, STORAGE_KEYS.settings, normalizeSettings);
   return {
-    load,
-    save,
-    /** Shallow-merges a patch into composerGradient and saves. */
-    async updateGradient(patch) {
-      const current = await load();
-      return save({ ...current, composerGradient: { ...current.composerGradient, ...patch } });
-    },
-    async reset() {
-      return save(defaultSettings());
-    },
-    /** Calls `listener(settings)` when another tab or this one saves. Returns an unsubscribe. */
-    subscribe(listener) {
-      return subscribeKey(changedEvent, key, (value) => listener(normalizeSettings(value)));
+    ...store,
+    reset() {
+      return store.save(defaultSettings());
     },
   };
-}
-
-/** Shared chrome.storage.onChanged filter for one key in the "local" area. */
-export function subscribeKey(changedEvent, key, listener) {
-  if (!changedEvent) return () => {};
-  const handler = (changes, areaName) => {
-    if (areaName !== "local" || !(key in changes)) return;
-    listener(changes[key].newValue);
-  };
-  changedEvent.addListener(handler);
-  return () => changedEvent.removeListener(handler);
 }

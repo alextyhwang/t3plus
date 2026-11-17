@@ -30,7 +30,7 @@ const ICONS = {
   chart: '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/>',
 };
 
-export const PROVIDER_COLORS = {
+const PROVIDER_COLORS = {
   codex: "var(--contrast-foreground, var(--foreground))",
   claude: "#d97757",
   grok: "color-mix(in oklab, var(--contrast-foreground, var(--foreground)) 72%, var(--background))",
@@ -88,9 +88,9 @@ export function createHomeView(doc, { variant = "home" } = {}) {
       : h("div", { id: T3PLUS.homeId, class: "t3plus-home", "data-t3plus-owned": "" });
   let signature = "";
 
-  // ---------------- Hover: T3-style tooltip + a crosshair on the charts ----------------
-  // Cards register what to show; one delegated pointer handler on t3+'s own
-  // grid drives everything (no listeners on T3's DOM).
+  // Hover (a T3-style tooltip and a crosshair on the charts): cards register
+  // what to show; one delegated pointer handler on t3+'s own grid drives
+  // everything (no listeners on T3's DOM).
   const tip = createTooltip(doc);
   const cellTips = new WeakMap(); // heatmap cell -> tooltip content
   const plotHovers = new WeakMap(); // chart plot -> (fraction 0..1) => { frac, content, dots: [{ y, color }] }
@@ -154,8 +154,6 @@ export function createHomeView(doc, { variant = "home" } = {}) {
     clearMarker();
     tip.hide();
   });
-
-  // ---------------- Pool (Codex / Claude) ----------------
 
   function poolCard(feed, kind, now) {
     const title = kind === "codex" ? "Codex pool" : "Claude pool";
@@ -245,8 +243,6 @@ export function createHomeView(doc, { variant = "home" } = {}) {
     ]);
   }
 
-  // ---------------- Activity ----------------
-
   // Fills its card: a weekday column (Mon / Wed / Fri), month labels on top,
   // and one square per day, scaled to the card's width.
   function activityCard(feed, projects, now) {
@@ -293,8 +289,6 @@ export function createHomeView(doc, { variant = "home" } = {}) {
     return card("activity", "Activity", "activity", [h("span", { class: "t3plus-w-muted", text: `${amount(map.runs)} ${unit}` })], [grid]);
   }
 
-  // ---------------- Usage (T3's chart) ----------------
-
   function usageCard(feed, now) {
     if (!feed) return card("usage", "Usage", "chart", null, [empty("Waiting for the home feed…")]);
     const { days, series, month } = tokenSeries(feed, now, 14);
@@ -315,7 +309,6 @@ export function createHomeView(doc, { variant = "home" } = {}) {
     const legend = Object.entries(month)
       .filter(([, v]) => v.tokens > 0)
       .sort((a, b) => b[1].tokens - a[1].tokens)
-      .slice(0, 3)
       .map(([p, v]) =>
         h("span", { class: "t3plus-w-legend-item", title: `${PROVIDER_LABELS[p] ?? p} this month: ${formatTokens(v.tokens)} tokens, ${formatUsd(v.cost)}` }, [
           h("span", { class: "t3plus-w-legend-dot", style: `background:${PROVIDER_COLORS[p] ?? "var(--muted-foreground)"}` }),
@@ -361,8 +354,8 @@ export function createHomeView(doc, { variant = "home" } = {}) {
       const minute = Math.floor(now.getTime() / 60000);
       const next = JSON.stringify([model.feed?.generatedAt ?? null, model.profile?.id ?? null, model.kind ?? null, minute]);
       if (next === signature) {
-        // Same cards: repaint only if the pixel size or layout changed (a no-op otherwise).
-        for (const d of dithers) d.paint();
+        // Same cards: repaint only if the pixel ratio or cell size changed (size: each canvas's ResizeObserver).
+        for (const d of dithers) d.refresh();
         return false;
       }
       signature = next;

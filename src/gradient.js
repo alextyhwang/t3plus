@@ -1,5 +1,5 @@
+import { DITHER_CELL_CSS } from "./config.js";
 import { BAYER_DITHER_DATA_URL } from "./dither.js";
-import { DITHER_CELL_CSS } from "./backdropRenderer.js";
 
 // Pure mapping from settings to the CSS hooks that src/styles/content.css reads.
 // No DOM access here, so the visual model is easy to test.
@@ -20,6 +20,7 @@ export function computeComposerTheme(settings, imageUrl) {
   const g = settings.composerGradient;
   const i = g.intensity;
   const s = settings.glass.strength;
+  const scrim = imageScrim(i);
   const vars = {
     "--t3plus-dither": BAYER_DITHER_DATA_URL,
     // One source of truth for every pixel surface: the backdrop renderer,
@@ -36,10 +37,8 @@ export function computeComposerTheme(settings, imageUrl) {
     "--t3plus-core": `${Math.round(i * 0.7)}%`,
     "--t3plus-halo": `${Math.round(i * 0.45)}%`,
     "--t3plus-fade": `${Math.round(i * 0.18)}%`,
-    // Image: share of the page background laid over the image. Heavier at the
-    // top, where messages are read; lighter near the composer.
-    "--t3plus-scrim-top": `${100 - Math.round(i * 0.55)}%`,
-    "--t3plus-scrim-bottom": `${100 - Math.round(i * 0.9)}%`,
+    "--t3plus-scrim-top": `${100 - Math.round(scrim.top)}%`,
+    "--t3plus-scrim-bottom": `${100 - Math.round(scrim.bottom)}%`,
     "--t3plus-image": imageUrl ? `url("${cssEscapeUrl(imageUrl)}")` : null,
     // Glass: share of the card color kept in the composer surface, and blur radius.
     "--t3plus-glass-opacity": `${Math.round(88 - s * 0.6)}%`,
@@ -50,6 +49,16 @@ export function computeComposerTheme(settings, imageUrl) {
   // Without a usable image, show nothing rather than an empty scrim.
   if (mode === "image" && !imageUrl) mode = null;
   return { mode, glass: settings.glass.enabled, vars };
+}
+
+/**
+ * Image mode: how much the page background is laid over the image, at the top
+ * and bottom of the pane, for an intensity on any scale (0-100 here, 0-1 in
+ * backdropRenderer.js); 0 is no scrim. Heavier at the top, where messages are
+ * read; lighter near the composer.
+ */
+export function imageScrim(intensity) {
+  return { top: intensity * 0.55, bottom: intensity * 0.9 };
 }
 
 /** Keeps a URL from breaking out of url("..."). */

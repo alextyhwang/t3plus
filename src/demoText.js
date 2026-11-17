@@ -42,17 +42,6 @@ const PROFILES = ["Studio", "Side projects", "Clients", "Open source", "Research
 
 const BOTS = ["Release Captain", "Triage Bot", "Nightly Builder", "Docs Gardener", "Deploy Watch", "Inbox Zero", "Dependency Bot", "QA Runner"];
 
-const BOT_MESSAGES = [
-  "Shipped 3 pull requests overnight; all checks are green.",
-  "Triaged 12 new issues and labeled 4 as good first issues.",
-  "Nightly build passed in 6m 41s. No new warnings.",
-  "Updated 9 docs pages that drifted from the API.",
-  "Staging deploy is healthy. Error rate is back under 0.1%.",
-  "Archived 14 stale threads and summarized the open ones.",
-  "Bumped 5 dependencies; one needs a manual review.",
-  "Ran the full e2e suite: 248 passed, 0 failed.",
-];
-
 const AUTOMATIONS = ["Nightly dependency check", "Weekly changelog draft", "Morning triage", "Daily backup check", "Release notes digest"];
 
 const PROSE =
@@ -120,7 +109,7 @@ const CODE_KEYWORDS = new Set([
 ]);
 
 /** FNV-1a, 32-bit. */
-export function hashText(text) {
+function hashText(text) {
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i += 1) {
     h ^= text.charCodeAt(i);
@@ -241,7 +230,7 @@ export function projectInitials(name) {
   return (parts.length > 1 ? parts[0][0] + parts[1][0] : parts[0][0]).toUpperCase();
 }
 
-const POOLS = { project: PROJECTS, title: TITLES, branch: BRANCHES, machine: MACHINES, profile: PROFILES, bot: BOTS, botMessage: BOT_MESSAGES, automation: AUTOMATIONS };
+const POOLS = { project: PROJECTS, title: TITLES, branch: BRANCHES, machine: MACHINES, profile: PROFILES, bot: BOTS, automation: AUTOMATIONS };
 
 /** Branch names that are generic and safe as they are. */
 const PLAIN_BRANCHES = new Set(["main", "master", "dev", "develop", "trunk", "staging", "production"]);

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fetchConfig } from "../src/background.js";
 import { CONFIG_LIMITS, DEFAULT_BOT_MARKER, STORAGE_KEYS } from "../src/config.js";
-import { CONFIG_ENDPOINTS } from "../src/hosts.js";
+import { CONFIG_ENDPOINT } from "../src/hosts.js";
 import { createConfigProvider, normalizeT3PlusConfig, parseT3PlusConfigText } from "../src/remoteConfig.js";
 import { createFakeChromeStorage, createFakeRemote, SAMPLE_CONFIG } from "./helpers.js";
 
@@ -31,7 +31,6 @@ test("normalizeT3PlusConfig keeps valid profiles and reports bad entries without
   assert.equal(config.profiles[1].color, null);
   assert.equal(config.profiles[1].showBots, false);
   assert.equal(config.botMarker, "[[acme:bot]]");
-  assert.equal(config.controlThread, "env1:ctl");
   assert.equal(errors.length, 3);
 });
 
@@ -55,8 +54,8 @@ test("remote success is used and cached", async () => {
   assert.equal(loaded.source, "remote");
   assert.equal(loaded.config.profiles.length, 2);
   assert.equal(loaded.diagnostic, null);
-  assert.deepEqual(remote.calls, [CONFIG_ENDPOINTS[0]]);
-  assert.equal(storage.area.data.get(STORAGE_KEYS.configCache).url, CONFIG_ENDPOINTS[0]);
+  assert.deepEqual(remote.calls, [CONFIG_ENDPOINT]);
+  assert.equal(storage.area.data.get(STORAGE_KEYS.configCache).url, CONFIG_ENDPOINT);
 });
 
 test("an unreachable or unpublished file yields no profiles and a diagnostic, never invented data", async () => {
@@ -131,11 +130,11 @@ test("the background worker fetches only the configured endpoint, without creden
     error: "URL is not a configured t3+ endpoint.",
   });
   assert.equal(seen.length, 0);
-  const ok = await fetchConfig(CONFIG_ENDPOINTS[0], fakeFetch);
+  const ok = await fetchConfig(CONFIG_ENDPOINT, fakeFetch);
   assert.deepEqual(ok, { ok: true, status: 200, text: "{}" });
   assert.deepEqual(seen[0].init, { cache: "no-store", credentials: "omit", redirect: "error" });
-  const big = await fetchConfig(CONFIG_ENDPOINTS[0], async () => ({ ok: true, status: 200, text: async () => "x".repeat(CONFIG_LIMITS.maxChars + 1) }));
+  const big = await fetchConfig(CONFIG_ENDPOINT, async () => ({ ok: true, status: 200, text: async () => "x".repeat(CONFIG_LIMITS.maxChars + 1) }));
   assert.equal(big.ok, false);
-  const missing = await fetchConfig(CONFIG_ENDPOINTS[0], async () => ({ ok: false, status: 404 }));
+  const missing = await fetchConfig(CONFIG_ENDPOINT, async () => ({ ok: false, status: 404 }));
   assert.deepEqual(missing, { ok: false, status: 404 });
 });

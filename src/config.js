@@ -1,6 +1,6 @@
 // DOM hooks and constants that depend on T3 Code's private UI.
 //
-// T3 Nightly changes often. Every T3 selector t3+ relies on lives in this file.
+// T3 Nightly changes often. Most T3 selectors t3+ relies on live in this file.
 // Composer/Appearance hooks were verified against pingdotgg/t3code @ 5e6cc2b8
 // (2026-09-08); sidebar, workspace and composer-shell hooks against @ 9ef259e5
 // (2026-11-11):
@@ -16,6 +16,13 @@
 // When one breaks, update it here and in src/styles/content.css (the CSS file
 // repeats the composer/backdrop selectors because manifest CSS cannot import JS).
 
+const TOOLTIP_POPUP = '[data-slot="tooltip-popup"]';
+/** Lines of a sidebar thread row (SidebarThreadRow.tsx): the body holds the top line (project, status slot) and the title line. */
+const ROW_BODY = ".relative.z-10";
+const ROW_TOP_LINE = ".h-5";
+const ROW_PROJECT = ".truncate";
+const CHAT_COLUMN_MAXIMIZED_AWAY_ATTR = "data-chat-column-maximized-away";
+
 export const T3_SELECTORS = Object.freeze({
   /** Rounded composer card that wraps the body and footer. */
   composerSurface: '[data-chat-composer-surface="true"]',
@@ -25,6 +32,9 @@ export const T3_SELECTORS = Object.freeze({
   composerEditor: '[data-testid="composer-editor"]',
   /** T3's composer shell; its ::before is T3's own glass layer, tuned by CSS variables. */
   composerShell: '[data-slot="composer-shell"]',
+  composerHost: '[data-slot="composer-host"]',
+  composerMainSurface: '[data-chat-composer-main-surface]',
+
   /** Conversation pane behind the timeline and composer: hosts the t3+ backdrop layer. */
   conversationArea: '[data-workspace-area="conversation"]',
   /** Composer overlay; its parent is the fallback backdrop host. On the new-thread
@@ -39,6 +49,7 @@ export const T3_SELECTORS = Object.freeze({
   appearanceSections: ["section#appearance", "section#appearance-interface"],
   /** T3's thread details panel card (ThreadDetailsPanel) and its usage limits section. */
   threadDetailsCard: "[data-thread-details-card]",
+  draftProjectTrigger: "[data-draft-project-trigger]",
   threadDetailsUsage: 'section[aria-label="Usage limits"]',
   /** The Usage page chart (UsageProviderChart): "Daily processed tokens by provider", "Hourly cost by provider". */
   usageChart: 'svg[role="img"][aria-label$=" by provider"]',
@@ -46,6 +57,22 @@ export const T3_SELECTORS = Object.freeze({
   modelPicker: "[data-chat-provider-model-picker]",
   /** The chat's scrolling message list (MessagesTimeline). Mutations inside it are streaming text. */
   messageList: ".messages-timeline-scroll",
+
+  /** ThreadPreviewMiniPlayer / ChatCanvas, checked against upstream 9ef259e5.
+   * Only browser mini players: device previews and the right panel stay native. */
+  floatingBrowser: 'section[data-preview-mini-player^="browser:"][aria-label="Floating browser preview"]',
+  previewSourceAttr: "data-preview-mini-player",
+  previewResize: "[data-preview-mini-player-resize]",
+  previewClose: 'button[aria-label="Close floating preview"]',
+  nativeBrowserSurface: "[data-browser-surface-slot]",
+  chatCanvas: "[data-chat-canvas]",
+  chatColumn: "[data-chat-column]",
+  /** On the chat column while the browser preview is maximized over it. */
+  chatColumnMaximizedAwayAttr: CHAT_COLUMN_MAXIMIZED_AWAY_ATTR,
+  chatColumnHidden: `[inert], [${CHAT_COLUMN_MAXIMIZED_AWAY_ATTR}="true"]`,
+  threadFindBar: "[data-thread-find-bar]",
+  previewThreadDetails: '[data-workspace-area="details"][aria-label="Thread details"]',
+  sidebarGap: '[data-slot="sidebar-gap"]',
 
   /** Sidebar panel. Several can exist (left/right); t3+ picks the one with thread rows. */
   sidebarInner: '[data-slot="sidebar-inner"]',
@@ -57,10 +84,40 @@ export const T3_SELECTORS = Object.freeze({
   homeLink: 'a[aria-label="T3 Code home"]',
   /** Every keyboard-navigable sidebar row. Value: thread key, folder:<key>, shelf:<name>, draft:<id>. */
   sidebarRow: "[data-sidebar-row]",
+  sidebarRowAttr: "data-sidebar-row",
+  /** Inside a thread row: the body holding its lines, the top line in that body, and the project name on the top line. */
+  rowBody: `:scope > ${ROW_BODY}`,
+  rowTopLine: `:scope > ${ROW_TOP_LINE}`,
+  rowProject: `:scope > ${ROW_PROJECT}`,
+  /** The project name of a card row, from the row itself (rowBody > rowTopLine > rowProject). */
+  rowProjectName: `:scope > ${ROW_BODY} > ${ROW_TOP_LINE} > ${ROW_PROJECT}`,
+  /** Class of T3's status/time slot on the top line. */
+  rowStatusSlotClass: "group/sidebar-status-slot",
+  /** The sidebar's outer wrapper (ui/sidebar.tsx); data-sidebar-state="expanded" | "collapsed". */
+  sidebarWrapper: '[data-slot="sidebar-wrapper"]',
+  /** T3's fixed sidebar toggle, and the chat header it moves into while the compact header is on. */
+  sidebarControl: "[data-sidebar-control]",
+  chatHeader: "[data-chat-header]",
+  /** The open thread's breadcrumb in the chat header; its <h2> is the thread title. */
+  threadBreadcrumb: '[aria-label="Thread breadcrumb"]',
+  /** T3's tooltip popups, portaled to <body>. */
+  tooltipPopup: TOOLTIP_POPUP,
+  /** The thread hover card's title line (ThreadHoverCard.tsx): first line of T3's tooltip popup.
+   *  T3 main uses font-medium; the open redesign stack (#28839-#28845) switches it to font-semibold. */
+  hoverCardTitle: `${TOOLTIP_POPUP} div.truncate:is(.font-medium, .font-semibold)`,
+  /** Settings sidebar links (one per settings page), and the Appearance one t3+ follows. */
+  settingsSectionLink: "[data-settings-section]",
+  settingsAppearanceLink: '[data-settings-section="/settings/appearance"]',
+  /** The settings page's scroller, and the column inside it that holds the page's sections. */
+  settingsPageScroll: "[data-settings-page-scroll]",
+  settingsPage: "[data-settings-page-scroll] > div",
   /** <li> around a thread row. Value: thread key "<environmentId>:<threadId>". */
   threadItem: "[data-thread-item]",
   /** <li> around a project folder header (Boring/project-grouped sidebar). */
   projectFolderItem: '[data-testid="sidebar-project-folder"]',
+  /** T3's thread list (Sidebar.tsx): a flex column <ul role="presentation"> whose
+   *  direct children are the row <li>s, shelf headers and the draft block. */
+  threadList: '[data-slot="sidebar-content"] ul[role="presentation"]',
 });
 
 /** Prefixes of data-sidebar-row / data-sidebar-parent values. */
@@ -70,11 +127,11 @@ export const SIDEBAR_ROW_PREFIX = Object.freeze({
   draft: "draft:",
 });
 
+// T3 composer draft persistence; read only the current draft's identity fields.
+export const T3_DRAFTS_STORAGE_KEY = "t3code:composer-drafts:v1";
+
 /** Path of T3's Settings -> Appearance page. */
 export const APPEARANCE_ROUTE = /\/settings\/appearance\/?$/;
-
-/** First path segments that are T3 app routes, not "/<environmentId>/<threadId>". */
-export const NON_THREAD_ROUTE_SEGMENTS = Object.freeze(["settings", "draft", "new", "pull-requests", "api", "oauth"]);
 
 /** Attributes and ids t3+ owns. */
 export const T3PLUS = Object.freeze({
@@ -96,8 +153,20 @@ export const T3PLUS = Object.freeze({
   botAttr: "data-t3plus-bot",
   /** On the visible title span inside a bot row. */
   botTitleAttr: "data-t3plus-bot-title",
+  /** On a bot row's second line (T3's title line), set by bots.js; the Assistant group mounts its summary there. */
+  botTitleLineAttr: "data-t3plus-bot-title-line",
+  /** On the open bot thread's breadcrumb heading, and on a bot's thread hover card title. */
+  botBreadcrumbAttr: "data-t3plus-bot-breadcrumb",
+  botHoverAttr: "data-t3plus-bot-hover",
+  /** On the t3+ entry in T3's Settings sidebar. */
+  settingsNavAttr: "data-t3plus-settings-nav",
   /** The home widgets under T3's new-thread composer. */
   homeId: "t3plus-home",
+  /** On a browser mini player while the fixed compact/expanded layout is applied. */
+  floatingAttr: "data-t3plus-floating",
+  previewDragAttr: "data-t3plus-preview-drag",
+  previewControlsAttr: "data-t3plus-preview-controls",
+  previewToolbarAttr: "data-t3plus-preview-toolbar",
   /** On <html> while the compact sidebar header is on. */
   compactAttr: "data-t3plus-compact-sidebar",
   /** On T3's logo row (the sidebar header that holds the home link); hidden by the compact header. */
@@ -116,6 +185,16 @@ export const T3PLUS = Object.freeze({
   homeAttr: "data-t3plus-home",
   /** On elements t3+ inserted into T3's DOM (bot avatars). */
   ownedAttr: "data-t3plus-owned",
+  /** On an Assistant group <li> (T3's own or a t3+ stand-in): "header" | "item" | "end". */
+  groupAttr: "data-t3plus-group",
+  /** On a t3+ stand-in <li>, drawn when T3 renders no row for a group thread. Value: thread key. */
+  standInAttr: "data-t3plus-standin",
+  /** On the visible title span of a group row with sub-threads: the count. */
+  subCountAttr: "data-t3plus-subcount",
+  /** Marks the read-only Assistant tasks section inside Thread Details. */
+  detailsTasksAttr: "data-t3plus-details-tasks",
+  detailsTasksLayoutAttr: "data-t3plus-tasks-layout",
+  detailsTasksHostAttr: "data-t3plus-tasks-host",
 });
 
 /** The exact title token that marks a thread as a bot/orchestrator. */
@@ -140,10 +219,30 @@ export const STORAGE_KEYS = Object.freeze({
   botFeedCache: "t3plus.botFeed.cache.v1",
   /** Last good copy of t3plus-home.json (home widget data). */
   homeFeedCache: "t3plus.homeFeed.cache.v1",
+  /** Assistant group view state: { expanded } (a viewing choice, local). */
+  assistantGroup: "t3plus.assistantGroup.v1",
 });
 
-export const GRADIENT_MODES = Object.freeze(["half-circle", "image"]);
-export const IMAGE_SOURCES = Object.freeze(["sample", "upload"]);
+const options = (list) => Object.freeze(list.map(([value, label]) => Object.freeze({ value, label })));
+const optionValues = (list) => Object.freeze(list.map(({ value }) => value));
+
+/** Background styles (settings composerGradient.mode), with their Settings labels. */
+export const GRADIENT_MODE_OPTIONS = options([["half-circle", "Glow"], ["image", "Image"]]);
+export const GRADIENT_MODES = optionValues(GRADIENT_MODE_OPTIONS);
+/** Dither cell sizes (composerGradient.ditherSize); each has a CSS size in DITHER_CELL_CSS. */
+export const DITHER_SIZE_OPTIONS = options([["fine", "Fine"], ["medium", "Medium"], ["large", "Large"]]);
+export const DITHER_SIZES = optionValues(DITHER_SIZE_OPTIONS);
+/** The three background styles (composerGradient.ditherStyle). All are pixel art in the bot avatars' style. */
+export const DITHER_STYLE_OPTIONS = options([["bayer", "Bayer"], ["grain", "Grain"], ["spectrum", "Spectrum"]]);
+export const DITHER_STYLES = optionValues(DITHER_STYLE_OPTIONS);
+/** Original, locally packaged wallpapers. IDs are saved; asset contents are not. */
+export const WALLPAPERS = Object.freeze([
+  { id: "sample", label: "Spectrum", path: "assets/sample-spectrum.svg" },
+  { id: "aurora", label: "Aurora", path: "assets/wallpaper-aurora.svg" },
+  { id: "contours", label: "Contours", path: "assets/wallpaper-contours.svg" },
+  { id: "facets", label: "Facets", path: "assets/wallpaper-facets.svg" },
+].map(Object.freeze));
+export const IMAGE_SOURCES = Object.freeze([...WALLPAPERS.map(({ id }) => id), "upload"]);
 
 export const DEFAULT_SETTINGS = Object.freeze({
   version: 2,
@@ -176,7 +275,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
     titleFirst: false,
   }),
   home: Object.freeze({
-    /** Activity, limits, spend and automations under the new-thread composer. */
+    /** Activity, limits and spend under the new-thread composer. */
     widgets: true,
   }),
   demo: Object.freeze({
@@ -185,8 +284,24 @@ export const DEFAULT_SETTINGS = Object.freeze({
   }),
 });
 
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+/** An accent value (settings, profile colors): "theme" or a lowercase #rrggbb, else the fallback. */
+export function normalizeAccent(value, fallback = "theme") {
+  if (value === "theme") return "theme";
+  return typeof value === "string" && HEX_COLOR.test(value) ? value.toLowerCase() : fallback;
+}
+
 /** Packaged sample image, relative to the extension root. */
-export const SAMPLE_IMAGE_PATH = "assets/sample-spectrum.svg";
+export const SAMPLE_IMAGE_PATH = WALLPAPERS[0].path;
+
+/**
+ * Dither cell size in CSS px (settings composerGradient.ditherSize). "fine"
+ * matches one pixel of a 32 px bot avatar (32 / 24 px). Sizes are in CSS px,
+ * not device px: on a 2x Retina display a 2-device-pixel cell was only 1 CSS px
+ * and the dither vanished.
+ */
+export const DITHER_CELL_CSS = Object.freeze({ fine: 4 / 3, medium: 2, large: 3 });
 
 /**
  * Bot avatar shapes: CSS clip-path for each. The avatar is a square tile
@@ -242,9 +357,12 @@ export const IMAGE_LIMITS = Object.freeze({
   acceptedTypes: Object.freeze(["image/png", "image/jpeg", "image/webp", "image/avif", "image/gif"]),
 });
 
+const MAX_BOTS = 24;
 export const BOT_LIMITS = Object.freeze({
   /** Most bots t3+ keeps presentation for. */
-  maxBots: 24,
+  maxBots: MAX_BOTS,
+  /** Most bot threads remembered from the sidebar (Settings lists them) or read from the bot feed. */
+  maxKnownBots: MAX_BOTS * 2,
   /** Longest preview text kept from the bot feed. */
   maxPreviewChars: 280,
 });

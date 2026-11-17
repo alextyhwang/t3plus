@@ -1,20 +1,13 @@
 import { T3PLUS } from "./config.js";
 import { createBuilder, setText } from "./dom.js";
 import { ALL_PROFILE_ID } from "./profiles.js";
-
-const SOURCE_LABEL = {
-  remote: "Profiles from the server t3plus.json",
-  cache: "Profiles from a cached copy of t3plus.json",
-  local: "Profiles from the local override in this browser",
-  none: "No profiles loaded",
-};
+import { CONFIG_SOURCES } from "./remoteConfig.js";
 
 /**
  * The profile strip: one small segmented control (All + profiles) inserted
- * under T3's sidebar header, plus a tiny source/diagnostic button. It is the
- * only element t3+ adds to the sidebar; bots are decorated in place on T3's own
- * rows (bots.js). Built once; update() rebuilds buttons only when the profile
- * list changes, so focus survives the DOM watcher's re-runs.
+ * under T3's sidebar header, plus a tiny source/diagnostic button. Built once;
+ * update() rebuilds buttons only when the profile list changes, so focus
+ * survives the DOM watcher's re-runs.
  *
  * actions: { selectProfile(id), refreshConfig() }
  */
@@ -67,7 +60,7 @@ export function createProfileBar(doc, actions) {
     }
 
     const problem = state.source === "none" || (state.source === "cache" && Boolean(state.diagnostic)) || state.errors.length > 0;
-    const statusText = [SOURCE_LABEL[state.source], state.diagnostic, ...state.errors.slice(0, 3), "Click to reload."]
+    const statusText = [CONFIG_SOURCES[state.source]?.status, state.diagnostic, ...state.errors.slice(0, 3), "Click to reload."]
       .filter(Boolean)
       .join("\n");
     if (status.title !== statusText) status.title = statusText;

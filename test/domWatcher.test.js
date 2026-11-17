@@ -29,3 +29,16 @@ test("mutations only inside the message list do not schedule a check; anything e
   assert.equal(checks, 2, "a sidebar change is checked");
   watcher.stop();
 });
+
+test("a check scheduled after stop never runs, so late async work cannot revive a stopped app", async () => {
+  const dom = createDom("/", "<nav></nav>");
+  let checks = 0;
+  const watcher = createDomWatcher({ win: dom.window, doc: dom.window.document, check: () => (checks += 1), throttleMs: 0 });
+  watcher.start();
+  watcher.stop();
+  watcher.schedule();
+  await settle();
+  await settle();
+  assert.equal(checks, 1);
+  dom.window.close();
+});

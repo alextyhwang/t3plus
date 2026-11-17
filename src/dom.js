@@ -16,6 +16,18 @@ let uid = 0;
 /** Unique ids for label/aria wiring. */
 export const uniqueId = (name) => `t3plus-${name}-${(uid += 1)}`;
 
+/**
+ * Sets an attribute to String(value), or removes it for null, undefined or
+ * false. Writes only when it changes, so re-running after each DOM check is cheap.
+ */
+export function syncAttr(el, name, value) {
+  if (value === null || value === undefined || value === false) {
+    if (el.hasAttribute(name)) el.removeAttribute(name);
+  } else if (el.getAttribute(name) !== String(value)) {
+    el.setAttribute(name, String(value));
+  }
+}
+
 /** Sets textContent only when it differs, so updates do not churn the DOM. */
 export function setText(el, value) {
   const next = value ?? "";

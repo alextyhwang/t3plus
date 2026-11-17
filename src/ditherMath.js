@@ -69,9 +69,6 @@ export function grainThreshold(x, y) {
   return f - Math.floor(f);
 }
 
-/** The three background styles. All are pixel art in the bot avatars' style. */
-export const DITHER_STYLES = Object.freeze(["bayer", "grain", "spectrum"]);
-
 const thresholdFor = (style) => (style === "grain" ? grainThreshold : bayerThreshold);
 
 function rgbToHsl([r, g, b]) {
@@ -155,7 +152,7 @@ export function glowPixelArt({ width, height, cx, rgb, intensity, style = "bayer
  * The glow on its own, centered in a sprite just big enough for its halo
  * (spanX/spanY = sprite size as a share of the pane). The renderer draws it
  * once and CSS moves it, so moving the glow (new thread <-> thread, composer
- * shifts) is an animated background-position, never a re-render.
+ * shifts) is a background-position change, never a re-render.
  */
 export function glowSpriteSpan() {
   return { spanX: GLOW_SHAPE.haloRx * 2, spanY: GLOW_SHAPE.haloRy * 2 };

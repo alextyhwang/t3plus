@@ -88,7 +88,7 @@ test("a marked bot row is decorated in place; untagged rows and row order are un
   assert.equal(botRow.querySelector(".sr-only").textContent, BOT.title);
   const title = botRow.querySelector(`[${T3PLUS.botTitleAttr}]`);
   assert.equal(title.textContent, BOT.title, "T3's visible title text is not rewritten");
-  assert.equal(title.getAttribute(T3PLUS.botTitleAttr), "", "no feed loaded: no preview text");
+  assert.equal(title.getAttribute(T3PLUS.botTitleAttr), "Working on your request", "live row status supplies workload without a feed");
   assert.equal(botRow.querySelector("[data-t3plus-bot-top]").getAttribute("data-t3plus-bot-name"), "Orchestrator");
   botRow.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
   assert.equal(clicks, 1);
@@ -193,8 +193,10 @@ test("bot rows: a 2rem avatar, name + a one-line truncated preview, same compact
   assert.doesNotMatch(css, /\.t3plus-bot-(chip|shelf)/);
 });
 
-test("bot rows show one status signal: the face, plus T3's colored label (its status icon and t3+'s dot are gone)", () => {
-  assert.match(css, /\[data-t3plus-bot-status\] svg:not\(button svg\)\s*\{\s*display:\s*none !important;/);
+test("status slots show T3's icon and time without the word, bot rows included", () => {
+  assert.doesNotMatch(css, /\[data-t3plus-bot-status\] svg:not\(button svg\)\s*\{\s*display:\s*none/, "bot rows keep T3's status icon");
+  assert.match(css, /\.group\\\/sidebar-status-slot > span > span\.inline-flex\.font-medium \{\s*gap: 0 !important;\s*font-size: 0 !important;/);
+  assert.match(css, /span\.inline-flex\.font-medium > span \{\s*margin-left: 0\.25rem;\s*font-size: 0\.75rem;/, "the time keeps T3's text-xs");
   assert.doesNotMatch(css, /\.t3plus-bot-avatar::after/, "no status dot on the avatar");
 });
 

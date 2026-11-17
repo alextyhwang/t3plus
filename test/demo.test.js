@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { STORAGE_KEYS, T3PLUS } from "../src/config.js";
 import { createNameBook, fakeCode, fakeProse, isNeutral, projectInitials } from "../src/demoText.js";
-import { BOT_TITLE, createApp, createDom, createFakeChromeStorage, settle, sidebarHtml } from "./helpers.js";
+import { createApp, createDom, createFakeChromeStorage, settle, sidebarHtml } from "./helpers.js";
 
 test("stand-ins are stable, distinct per real name, and keep generic values", () => {
   const book = createNameBook();
@@ -86,7 +86,6 @@ test("screenshot mode covers sidebar, breadcrumb and messages, and restores ever
   assert.ok(bot.hasAttribute(T3PLUS.botAttr));
   assert.match(bot.getAttribute("aria-description"), /^t3\+ bot: /);
   assert.ok(!bot.getAttribute("aria-description").includes("Orchestrator"), "bot name is a stand-in");
-  assert.ok(BOT_TITLE.includes("Orchestrator"));
 
   // T3 re-renders a message: the new text is covered on the next pass.
   doc.getElementById("prose").firstChild.nodeValue = "New private reply from Dr. Smith.";

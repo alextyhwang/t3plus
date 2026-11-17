@@ -6,6 +6,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { withAssistantIds } from "./fixture.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const port = Number(process.argv[2] ?? 4378);
@@ -17,12 +18,12 @@ createServer(async (req, res) => {
   const allowed = file.startsWith(join(root, "dist") + sep) || file.startsWith(join(root, "harness") + sep);
   try {
     if (!allowed) throw new Error("fallback");
-    const body = await readFile(file);
+    const body = file === join(root, "harness/index.html") ? withAssistantIds(await readFile(file, "utf8")) : await readFile(file);
     res.writeHead(200, { "content-type": types[extname(file)] ?? "application/octet-stream" });
     res.end(body);
   } catch {
     res.writeHead(200, { "content-type": "text/html" });
-    res.end(await readFile(join(root, "harness/index.html")));
+    res.end(withAssistantIds(await readFile(join(root, "harness/index.html"), "utf8")));
   }
 }).listen(port, "127.0.0.1", () => {
   console.log(`t3+ harness: http://127.0.0.1:${port}/settings/appearance`);

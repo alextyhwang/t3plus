@@ -52,15 +52,9 @@ const FEED = {
       { label: "School", plan: "ChatGPT Plus Subscription", windows: [{ label: "Weekly", kind: "weekly", durationMins: 10080, usedPercent: 0 }] },
     ] },
   },
-  limitHistory: [{ t: "2026-11-11T00:00:00Z", weekLeft: 900, weekCap: 1200 }, { t: "2026-11-12T00:00:00Z", weekLeft: 600, weekCap: 1200 }, { t: "nope" }],
   // Codex pool every 30 minutes over the last day, falling 10 points an hour: 840 -> 600.
   codexSeries: Array.from({ length: 49 }, (_, i) => [Date.UTC(2026, 10, 11, 6) / 1000 + i * 1800, 840 - i * 5, 1200]).concat([["bad"]]),
   claudeSeries: [[Date.UTC(2026, 10, 12, 5) / 1000, 115, 200]],
-  automations: [
-    { title: "Inbox cleanup", project: 0, threadKey: "env1:t1", nextRunAt: "2026-11-12T09:00:00Z", lastStatus: "succeeded" },
-    { title: "Notes reminder", project: 1, threadKey: "env1:t2", nextRunAt: "2026-11-12T07:00:00Z", lastStatus: "failed" },
-    { title: "No schedule", project: 0, threadKey: null, nextRunAt: null },
-  ],
 };
 const feed = () => parseHomeFeedText(JSON.stringify(FEED));
 const notesOnly = { id: "notes", includeAll: false, projects: ["C:\\Users\\me\\projects\\notes"], excludeProjects: [], threads: [] };
@@ -70,8 +64,6 @@ test("home feed parses, validates and drops bad entries", () => {
   const f = feed();
   assert.equal(f.projects.length, 2);
   assert.equal(f.claude[0].windows.length, 3, "malformed window dropped");
-  assert.equal(f.history.length, 2);
-  assert.equal(f.automations[2].threadKey, null);
   for (const bad of ["", "nope", "{}", JSON.stringify({ version: 2 })]) assert.equal(parseHomeFeedText(bad), null);
 });
 
@@ -104,9 +96,8 @@ test("Codex pool: Plus weeks (Pro = 10x), recorded line, projection at the recor
   const pool = poolModel(f, "codex", now);
   assert.equal(pool.cap, 1200);
   assert.equal(pool.left, 500 + 0 + 100);
-  assert.equal(pool.fiveCap, 100);
-  assert.equal(pool.fiveLeft, 60);
-  assert.ok(Math.abs(pool.burn - 10) < 0.01, "10 points an hour, from the last day of the recorded line");
+  const { burn } = projectPool({ recorded: f.codexSeries, left: pool.left, cap: pool.cap, refills: [], now, until: now + 3600000 });
+  assert.ok(Math.abs(burn - 10) < 0.01, "10 points an hour, from the last day of the recorded line");
   assert.equal(pool.recorded.at(-1).left, 600, "the line ends at the live value");
   assert.deepEqual(pool.nextRefill, { at: Date.UTC(2026, 10, 13), amount: 100 }, "Personal's week comes back first");
   // Projection: 600 falling 10/h; Personal +100 lands at 18h, Team +500 at 66h, just before it would run out.
@@ -126,7 +117,6 @@ test("Claude pool adds up each account's weekly window (100% each)", () => {
   const pool = poolModel(feed(), "claude", Date.UTC(2026, 10, 12, 6));
   assert.equal(pool.cap, 100);
   assert.equal(pool.left, 15);
-  assert.equal(pool.fiveLeft, 87);
   assert.equal(poolModel(parseHomeFeedText(JSON.stringify({ ...FEED, limits: { claude: [], codex: null } })), "claude"), null);
 });
 
@@ -142,6 +132,14 @@ test("activity numbers and the token series", () => {
   assert.deepEqual(t.month.claude, { cost: 7, tokens: 2000 });
   assert.equal(formatTokens(27836752), "28M");
   assert.equal(formatTokens(1500000000), "1.5B");
+});
+
+test("usage keeps a provider in the historical legend after its last usage leaves the window", () => {
+  const f = feed();
+  f.spend.set("2026-09-01", { claude_removed: [12, 9000] });
+  const t = tokenSeries(f, NOW, 14);
+  assert.deepEqual(t.series.map((x) => x.provider), ["codex", "claude", "claude_removed"]);
+  assert.deepEqual(t.series.at(-1).values, Array(14).fill(0));
 });
 
 // T3's draft hero (ChatView.tsx): the overlay is centered (items-center) and the
@@ -201,10 +199,33 @@ test("app: no widgets in a normal thread (composer docked at the bottom)", async
   app.stop();
 });
 
-test("Claude pool weights plans: Max ($100) is 5x Pro ($20), so Pro + Max = 600%", async () => {
-  const { claudeWeight } = await import("../src/homeData.js");
-  assert.equal(claudeWeight("Claude Max"), 5);
-  assert.equal(claudeWeight("Claude Pro"), 1);
+test("app: the widgets are as wide as the composer, but never wider than the room on its narrower side of the pane", async () => {
+  const dom = createDom("/draft/abc", HERO);
+  const doc = dom.window.document;
+  const rect = (left, width) => () => ({ left, width, top: 0, height: 100, right: left + width, bottom: 100 });
+  doc.querySelector('[data-workspace-area="conversation"]').getBoundingClientRect = rect(0, 1000);
+  const stack = doc.querySelector('[data-chat-composer-stack="true"]');
+  const { app } = createApp(dom, undefined, { homeFeed: { readCache: async () => null, load: async () => null } });
+  const width = () => doc.documentElement.style.getPropertyValue("--t3plus-home-width");
+  try {
+    stack.getBoundingClientRect = rect(200, 600); // centered in the pane
+    await app.start();
+    app.watcher.flush();
+    assert.ok(doc.getElementById(T3PLUS.homeId), "mounted");
+    assert.equal(width(), "600px", "the composer's width");
+    stack.getBoundingClientRect = rect(600, 600); // pushed right: 100px to the pane's right edge
+    app.watcher.flush();
+    assert.equal(width(), "152px", "twice the room on the right, less the margins");
+    stack.getBoundingClientRect = rect(950, 600); // center outside the pane
+    app.watcher.flush();
+    assert.equal(width(), "0px", "never negative");
+  } finally {
+    app.stop();
+    dom.window.close();
+  }
+});
+
+test("Claude pool weights plans: Max ($100) is 5x Pro ($20), so Pro + Max = 600%", () => {
   const withPlans = JSON.parse(JSON.stringify(FEED));
   withPlans.limits.claude = [
     { id: "claudeAgent", label: "Claude", plan: "Claude Pro", windows: [{ label: "Weekly", kind: "weekly", durationMins: 10080, usedPercent: 85, resetsAt: "2026-11-14T10:00:00Z" }] },
@@ -220,13 +241,13 @@ test("Claude pool weights plans: Max ($100) is 5x Pro ($20), so Pro + Max = 600%
 
 test("Activity uses the activity source's tokens per day when the feed has them", async () => {
   const { tokenDaily } = await import("../src/homeData.js");
-  const f = parseHomeFeedText(JSON.stringify({ ...FEED, aiActivity: { "2026-11-11": [1018102370, { codex: 416198814, claude: 601903556, cursor: 0 }], "2026-11-10": 0, "2026-11-08": 7, bad: 5, "2026-11-09": "x" } }));
+  const f = parseHomeFeedText(JSON.stringify({ ...FEED, aiActivity: { "2026-11-11": [1018102370, { codex: 416198814, claude: 601903556, cursor: 0 }], "2026-11-10": [0, {}], "2026-11-08": [7, {}], "2026-11-07": 7, bad: [5, {}], "2026-11-09": ["x", {}] } }));
   assert.deepEqual([...f.aiActivity.keys()], ["2026-11-11", "2026-11-10", "2026-11-08"]);
   assert.deepEqual(f.aiActivity.get("2026-11-11").providers, { codex: 416198814, claude: 601903556 }, "zero providers dropped");
   assert.deepEqual([...tokenDaily(f)], [
     ["2026-11-11", { threads: 0, runs: 1018102370, providers: { codex: 416198814, claude: 601903556 } }],
     ["2026-11-08", { threads: 0, runs: 7, providers: {} }],
-  ], "older feeds (bare totals) still work");
+  ], "zero days and malformed entries dropped");
 });
 
 test("hover: a T3-style tooltip for heatmap days and chart points, a crosshair, and clean removal", async () => {
@@ -280,15 +301,13 @@ test("tooltip skips null rows instead of exposing a literal null", () => {
   assert.equal(dom.window.document.getElementById("t3plus-tip").textContent, "2:17 PMLeft293% of 600");
 });
 
-test("the glow slide is quick (150 ms) and the watcher skips its throttle right after a navigation", async () => {
+test("the glow position changes instantly and the watcher skips its throttle right after a navigation", async () => {
   const { readFile } = await import("node:fs/promises");
   const css = await readFile(new URL("../src/styles/content.css", import.meta.url), "utf8");
-  const appSource = await readFile(new URL("../src/app.js", import.meta.url), "utf8");
-  assert.match(css, /--t3plus-glow-x 150ms/);
+  assert.doesNotMatch(css, /--t3plus-glow-[xy]\s+\d+(?:ms|s)/, "no position tween during navigation");
   assert.match(css, /\.t3plus-home\s*\{[\s\S]*max-width: calc\(100vw - 1rem\)/);
   assert.match(css, /\.t3plus-w-now-label\s*\{[\s\S]*bottom: calc\(100% - 0\.375rem\)/);
   assert.match(css, /\.t3plus-details-pool \.t3plus-w-pool-head\s*\{[\s\S]*flex-wrap: wrap/);
-  assert.match(appSource, /Math\.max\(0, Math\.min\(s\.width, room\)\)/);
   const { createDomWatcher } = await import("../src/domWatcher.js");
   const dom = createDom("/", "<div></div>");
   let runs = 0;

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <!-- Original t3+ artwork. Static radial fields, with a quiet center for text. -->
+  <defs>
+    <radialGradient id="teal" cx="0.06" cy="0.9" r="0.85">
+      <stop stop-color="#59b8a8"/>
+      <stop offset="0.48" stop-color="#2d6970" stop-opacity="0.65"/>
+      <stop offset="1" stop-color="#1a3548" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="lilac" cx="0.98" cy="0.7" r="0.78">
+      <stop stop-color="#a18ab9"/>
+      <stop offset="0.5" stop-color="#62577e" stop-opacity="0.65"/>
+      <stop offset="1" stop-color="#28324e" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="blue" cx="0.5" cy="1.2" r="0.65">
+      <stop stop-color="#698bac"/>
+      <stop offset="1" stop-color="#344361" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <path fill="#1c293d" d="M0 0h1600v1000H0z"/>
+  <path fill="url(#teal)" d="M0 0h1600v1000H0z"/>
+  <path fill="url(#lilac)" d="M0 0h1600v1000H0z"/>
+  <path fill="url(#blue)" d="M0 0h1600v1000H0z"/>
+</svg>

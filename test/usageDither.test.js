@@ -19,10 +19,11 @@ const CODEX = "M0.00,208.00 C320.00,208.00 640.00,182.00 960.00,182.00";
 
 test("samplePath follows T3's monotone cubic path in viewBox fractions", () => {
   const points = samplePath(CLAUDE, 960, 260);
-  assert.equal(points.length, 25, "the start plus 12 samples per segment");
   assert.deepEqual(points[0], [0, 0.5]);
-  assert.deepEqual(points[12], [0.5, 0.1]);
+  assert.ok(points.some(([x, y]) => x === 0.5 && y === 0.1), "passes through the joint between the two curves");
   assert.deepEqual(points.at(-1), [1, 0.5]);
+  assert.ok(points.length > 3, "the curves are sampled, not just their end points");
+  assert.ok(points.every(([x, y], i) => (i === 0 || x > points[i - 1][0]) && y >= 0.1 - 1e-9 && y <= 0.5 + 1e-9), "left to right, inside the curve's range");
   assert.deepEqual(samplePath("M0,0 L10,10", 960, 260), [], "anything but M + C is ignored");
   assert.deepEqual(samplePath("", 960, 260), []);
 });

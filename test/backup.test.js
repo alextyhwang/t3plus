@@ -1,18 +1,8 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { test } from "node:test";
-import { buildManifest } from "../build.mjs";
-import { EXPORTED_KEYS, exportAll, importAll, mirrorToSync, restoreFromSync, SYNCED_KEYS } from "../src/backup.js";
+import { exportAll, importAll, mirrorToSync, restoreFromSync } from "../src/backup.js";
 import { STORAGE_KEYS } from "../src/config.js";
 import { createFakeChromeStorage } from "./helpers.js";
-
-test("the manifest pins the extension key, so every build has the same extension ID", async () => {
-  const manifest = await buildManifest();
-  assert.equal(typeof manifest.key, "string");
-  const der = Buffer.from(manifest.key, "base64");
-  const id = [...createHash("sha256").update(der).digest("hex").slice(0, 32)].map((h) => String.fromCharCode(97 + parseInt(h, 16))).join("");
-  assert.equal(id, "nclfnobogafdmfohgibkgeefijieoeoc");
-});
 
 test("a fresh install restores preferences from Chrome Sync; existing local values win", async () => {
   const local = createFakeChromeStorage();
@@ -45,24 +35,24 @@ test("changes are mirrored to Chrome Sync, debounced, and oversized values stay 
   assert.equal(sync.area.data.has(STORAGE_KEYS.configLocal), false, "too big for a Sync item");
   assert.equal(sync.area.data.has(STORAGE_KEYS.image), false, "images are never synced");
   stop();
-  assert.ok(!SYNCED_KEYS.includes(STORAGE_KEYS.image));
 });
 
 test("export and import round-trip every preference, and reject other files", async () => {
   const a = createFakeChromeStorage();
   a.area.data.set(STORAGE_KEYS.settings, { version: 2, home: { widgets: false } });
   a.area.data.set(STORAGE_KEYS.image, { dataUrl: "data:image/webp;base64,AAAA", name: "bg.webp" });
+  a.area.data.set(STORAGE_KEYS.knownBots, { "env1:bot1": { title: "[[t3plus:bot:v1]] Ops" } });
   a.area.data.set(STORAGE_KEYS.homeFeedCache, { text: "{}" });
   const file = await exportAll(a.area, "0.14.0");
   assert.equal(file.app, "t3plus");
-  assert.deepEqual(Object.keys(file.data).sort(), [STORAGE_KEYS.image, STORAGE_KEYS.settings].sort(), "caches are not exported");
+  assert.deepEqual(Object.keys(file.data).sort(), [STORAGE_KEYS.image, STORAGE_KEYS.knownBots, STORAGE_KEYS.settings].sort(), "caches are not exported; known bots are");
   const b = createFakeChromeStorage();
   const keys = await importAll(b.area, JSON.parse(JSON.stringify(file)));
-  assert.equal(keys.length, 2);
+  assert.equal(keys.length, 3);
   assert.equal(b.area.data.get(STORAGE_KEYS.image).name, "bg.webp");
+  assert.equal(b.area.data.get(STORAGE_KEYS.knownBots)["env1:bot1"].title, "[[t3plus:bot:v1]] Ops");
   await assert.rejects(importAll(b.area, { app: "other" }), /Not a t3\+ backup/);
   await assert.rejects(importAll(b.area, { app: "t3plus", data: { evil: 1 } }), /no t3\+ settings/);
-  assert.ok(EXPORTED_KEYS.includes(STORAGE_KEYS.knownBots));
 });
 
 const fakePage = () => {

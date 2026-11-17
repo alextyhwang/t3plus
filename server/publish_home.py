@@ -6,11 +6,10 @@ Everything comes from T3 itself, read-only, without changing T3's server:
       - subscribeServerConfig {usageLimitSources}: live Claude limits and the
         Codex Gateway account windows (the accounts the Codex CLI uses);
       - server.getUsageSummary: daily cost/tokens per provider.
-  * statev2.sqlite opened read-only: runs and new threads per day per project,
-    and scheduled automations (title, next/last run, status only; never
-    prompts or webhook secrets).
-Limit snapshots are appended to a small local history so the pool chart can
-show the recorded trend. Output goes to the feed folder next to t3plus.json
+  * statev2.sqlite opened read-only: runs and new threads per day per project.
+Limit and usage snapshots are kept in local append/merge-only archives, so
+removing a provider cannot erase the history already observed for it. Output
+goes to the feed folder next to t3plus.json
 (see feedconfig.py). It needs Python 3.10+ with `websockets`:
 
     python publish_home.py [--print]
@@ -35,6 +34,12 @@ USERDATA = feedconfig.USERDATA
 DB = USERDATA / "statev2.sqlite"
 OUT = feedconfig.FEED_DIR / "t3plus-home.json"
 HISTORY = USERDATA / "t3plus" / "limits-history.json"
+# These files are append/merge-only snapshots. T3's live summary is scoped to
+# the providers that are configured now, so it can omit an account immediately
+# after it is removed. A dashboard history must keep the values we observed
+# while that account was configured.
+SPEND_HISTORY = USERDATA / "t3plus" / "usage-history.json"
+ACTIVITY_HISTORY = USERDATA / "t3plus" / "activity-history.json"
 # Daily token totals change slowly: the activity source is asked at most every 30 minutes.
 ACTIVITY_CACHE = USERDATA / "t3plus" / "ai-activity-cache.json"
 ACTIVITY_MAX_AGE = 1800
@@ -43,6 +48,9 @@ BASE = "http://127.0.0.1:3773"
 TIME_ZONE = feedconfig.TIME_ZONE
 ACTIVITY_DAYS = 26 * 7
 SPEND_DAYS = 62
+# Limit snapshots are retained for the lifetime of the local history.  Older
+# samples are compacted to one per local day below, so this does not grow at
+# the ten-minute polling rate forever.
 HISTORY_DAYS = 8
 NO_WINDOW = 0x08000000
 # Optional: a loopback service whose read-only GETs (/history, /overview) serve
@@ -66,8 +74,6 @@ def local_day(iso):
     except ValueError:
         return None
 
-
-# ---------------------------------------------------------------- T3 API
 
 def issue_session():
     args = [CLI, "auth", "session", "issue", "--base-dir", str(ROOT), "--ttl", "5m", "--label", "t3plus home feed",
@@ -122,8 +128,6 @@ def read_t3(token):
                         providers = (payload.get("config") or {}).get("providers") or payload.get("providers") or []
     return summary or {}, providers or [], sources or []
 
-
-# ---------------------------------------------------------------- shaping
 
 def clean_window(w):
     used = w.get("usedPercent")
@@ -181,27 +185,14 @@ def claude_weight(plan):
     return 5 if "max" in (plan or "").lower() else 1
 
 
-def codex_pool(codex):
-    """Pool left this week and this 5-hour window, in 'Plus weeks' percent (Pro counts 10x)."""
-    if not codex:
-        return None
-    cap = week_left = five_left = five_cap = 0.0
-    for a in codex["accounts"]:
-        weight = plan_weight(a["plan"]) * 100
-        weekly = next((w for w in a["windows"] if (w["durationMins"] or 0) >= 1440), None)
-        five = next((w for w in a["windows"] if 0 < (w["durationMins"] or 0) < 1440), None)
-        cap += weight
-        week_left += weight * (1 - (weekly["usedPercent"] if weekly else 0) / 100)
-        if five:
-            five_cap += weight
-            five_left += weight * (1 - five["usedPercent"] / 100)
-    return {"weekLeft": round(week_left), "weekCap": round(cap), "fiveLeft": round(five_left), "fiveCap": round(five_cap)}
-
-
 def spend(summary):
     by_day = defaultdict(lambda: defaultdict(lambda: [0.0, 0]))
     for b in summary.get("buckets") or []:
-        day, provider = b.get("day"), b.get("provider")
+        day = b.get("day")
+        # Newer summaries include the configured account/instance identity.
+        # Keep it when present so two Claude accounts do not collapse into one
+        # line, while accepting older summaries that only have ``provider``.
+        provider = b.get("providerInstanceId") or b.get("provider")
         if not day or not provider:
             continue
         cell = by_day[day][provider]
@@ -210,7 +201,64 @@ def spend(summary):
     return {day: {p: [round(v[0], 4), v[1]] for p, v in provs.items()} for day, provs in sorted(by_day.items())}
 
 
-def database(env_id):
+def _read_json(path, fallback):
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+        return value
+    except (OSError, ValueError, TypeError):
+        return fallback
+
+
+def merge_spend_history(current):
+    """Merge the current T3 summary without dropping removed providers.
+
+    ``server.getUsageSummary`` reports the requested date range, but only for
+    providers that still exist in the current configuration.  Each observed
+    provider/day is therefore replaced with the newest cumulative value while
+    provider/day entries absent from this snapshot are retained indefinitely.
+    """
+    history = _read_json(SPEND_HISTORY, {})
+    if not isinstance(history, dict):
+        history = {}
+    for day, providers in current.items():
+        if not isinstance(day, str) or not isinstance(providers, dict):
+            continue
+        target = history.setdefault(day, {})
+        if not isinstance(target, dict):
+            target = history[day] = {}
+        for provider, value in providers.items():
+            if isinstance(value, list) and len(value) >= 2:
+                try:
+                    key = str(provider)[:64]
+                    incoming = [float(value[0]), int(value[1])]
+                    previous = target.get(key)
+                    if isinstance(previous, list) and len(previous) >= 2:
+                        incoming = [max(float(previous[0]), incoming[0]), max(int(previous[1]), incoming[1])]
+                    target[key] = incoming
+                except (TypeError, ValueError, OverflowError):
+                    continue
+    # Keep malformed/partial entries out of the published feed, but do not
+    # apply a time cutoff: history is explicitly meant to survive account
+    # removal and a period with no providers configured.
+    cleaned = {}
+    for day, providers in history.items():
+        if not isinstance(day, str) or not isinstance(providers, dict):
+            continue
+        rows = {}
+        for provider, value in providers.items():
+            if isinstance(value, list) and len(value) >= 2:
+                try:
+                    rows[str(provider)[:64]] = [round(float(value[0]), 4), int(value[1])]
+                except (TypeError, ValueError, OverflowError):
+                    pass
+        if rows:
+            cleaned[day] = rows
+    SPEND_HISTORY.parent.mkdir(parents=True, exist_ok=True)
+    write_atomic(SPEND_HISTORY, cleaned)
+    return dict(sorted(cleaned.items()))
+
+
+def database():
     conn = sqlite3.connect(f"file:{DB}?mode=ro", uri=True, timeout=10)
     try:
         projects = []
@@ -238,18 +286,7 @@ def database(env_id):
         days = defaultdict(list)
         for (day, pi), (threads, runs) in sorted(cells.items()):
             days[day].append([pi, threads, runs])
-        automations = []
-        for title, enabled, pid, thread_id, next_run, last_run, status, runs in conn.execute(
-                "SELECT title, enabled, project_id, thread_id, next_run_at, last_run_at, last_run_status, run_count "
-                "FROM scheduled_tasks WHERE enabled = 1 ORDER BY next_run_at IS NULL, next_run_at LIMIT 60"):
-            automations.append({
-                "title": str(title or "")[:80],
-                "project": index.get(pid),
-                "threadKey": f"{env_id}:{thread_id}" if env_id and thread_id else None,
-                "nextRunAt": next_run, "lastRunAt": last_run,
-                "lastStatus": str(status or "")[:20], "runCount": int(runs or 0),
-            })
-        return projects, dict(days), automations
+        return projects, dict(days)
     finally:
         conn.close()
 
@@ -276,7 +313,6 @@ def codex_series():
     names = history.get("names") or []
     cutoff = time.time() - SERIES_DAYS * 86400
     last_week = [None] * len(names)
-    last_five = [None] * len(names)
     points, bucket = [], None
     for sample in history.get("samples") or []:
         t = sample.get("t")
@@ -285,23 +321,17 @@ def codex_series():
         for i, v in enumerate(sample.get("weekly") or []):
             if v is not None and i < len(names):
                 last_week[i] = v
-        for i, v in enumerate(sample.get("five_hour") or []):
-            if v is not None and i < len(names):
-                last_five[i] = v
         if t < cutoff:
             continue
-        cap = left = five_cap = five_left = 0.0
+        cap = left = 0.0
         for i, name in enumerate(names):
             w = weights.get(name)
             if w is None:  # an account that is gone (removed or disabled)
                 continue
             cap += w
             left += w * (1 - (last_week[i] or 0) / 100)
-            if last_five[i] is not None:
-                five_cap += w
-                five_left += w * (1 - last_five[i] / 100)
         b = t // SERIES_STEP
-        point = [t, round(left), round(cap), round(five_left), round(five_cap)]
+        point = [t, round(left), round(cap)]
         if b == bucket:
             points[-1] = point
         else:
@@ -325,22 +355,78 @@ def claude_series(history, claude):
     return points
 
 
-def ai_activity():
+def ai_activity(spend_history=None):
     """{day: [total tokens, {provider: tokens}]}, from a local copy younger than
     ACTIVITY_MAX_AGE, else from the site (the old copy is kept if that fails)."""
+    cached = _read_json(ACTIVITY_CACHE, None)
+    history = _read_json(ACTIVITY_HISTORY, {})
+    if not isinstance(history, dict):
+        history = {}
     try:
-        cached = json.loads(ACTIVITY_CACHE.read_text(encoding="utf-8"))
         fresh = time.time() - ACTIVITY_CACHE.stat().st_mtime < ACTIVITY_MAX_AGE
-    except (OSError, ValueError):
-        cached, fresh = None, False
-    if fresh and cached:
-        return cached
-    live = fetch_ai_activity()
-    if live:
-        ACTIVITY_CACHE.parent.mkdir(parents=True, exist_ok=True)
-        ACTIVITY_CACHE.write_text(json.dumps(live), encoding="utf-8")
-        return live
-    return cached
+    except OSError:
+        fresh = False
+    from_cache = fresh and isinstance(cached, dict)
+    live = cached if from_cache else fetch_ai_activity()
+    merged = merge_activity_history(history, live or {})
+    # The public activity endpoint can lag or lose an account-specific series
+    # when a Claude login is removed.  The Usage summary has the same durable
+    # daily token counts, so use it to backfill the Activity heatmap as well.
+    from_spend = {}
+    for day, providers in (spend_history or {}).items():
+        if not isinstance(providers, dict):
+            continue
+        by_provider = {}
+        for provider, value in providers.items():
+            if isinstance(value, list) and len(value) > 1:
+                try:
+                    tokens = max(0, int(value[1]))
+                except (TypeError, ValueError):
+                    continue
+                if tokens:
+                    by_provider[str(provider)[:64]] = tokens
+        if by_provider:
+            from_spend[day] = [sum(by_provider.values()), by_provider]
+    merged = merge_activity_history(merged, from_spend)
+    if merged:
+        ACTIVITY_HISTORY.parent.mkdir(parents=True, exist_ok=True)
+        write_atomic(ACTIVITY_HISTORY, merged)
+        if live and not from_cache:
+            write_atomic(ACTIVITY_CACHE, live)
+        return merged
+    return cached if isinstance(cached, dict) else None
+
+
+def merge_activity_history(history, current):
+    """Retain provider/day token totals when an account disappears.
+
+    Token totals are cumulative for a day.  Taking the maximum protects the
+    observed value if a later live response no longer includes a removed
+    account, while still allowing the current day to grow as more work runs.
+    """
+    result = dict(history) if isinstance(history, dict) else {}
+    for day, value in (current or {}).items():
+        if not isinstance(value, list) or not value:
+            continue
+        try:
+            total = max(0, int(value[0]))
+        except (TypeError, ValueError):
+            continue
+        old = result.get(day)
+        old_total = old[0] if isinstance(old, list) and old and isinstance(old[0], (int, float)) else 0
+        old_providers = old[1] if isinstance(old, list) and len(old) > 1 and isinstance(old[1], dict) else {}
+        providers = dict(old_providers)
+        incoming = value[1] if len(value) > 1 and isinstance(value[1], dict) else {}
+        for provider, tokens in incoming.items():
+            try:
+                providers[str(provider)[:64]] = max(0, int(tokens))
+            except (TypeError, ValueError):
+                continue
+        # A removed account's tokens remain in ``providers``.  The total must
+        # include them even when the live source now reports only active
+        # accounts for that day.
+        result[str(day)[:10]] = [max(int(old_total), total, sum(providers.values())), providers]
+    return result
 
 
 def fetch_ai_activity():
@@ -373,27 +459,36 @@ def fetch_ai_activity():
     return out
 
 
-def update_history(pool, claude, now_iso):
+def update_history(claude, now_iso):
+    """Appends this run's Claude weekly usage to the local archive and returns
+    the archive thinned for claude_series."""
     try:
         history = json.loads(HISTORY.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         history = []
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=HISTORY_DAYS)).isoformat()
     entry = {"t": now_iso}
-    if pool:
-        entry.update(pool)
     for c in claude:
         weekly = next((w for w in c["windows"] if (w["durationMins"] or 0) >= 1440), None)
         if weekly:
             entry.setdefault("claudeWeekUsed", {})[c["id"]] = weekly["usedPercent"]
-    history = [h for h in history if h.get("t", "") >= cutoff] + [entry]
+    history = [h for h in history if isinstance(h, dict) and isinstance(h.get("t"), str)] + [entry]
     HISTORY.parent.mkdir(parents=True, exist_ok=True)
     HISTORY.write_text(json.dumps(history), encoding="utf-8")
-    # At most one point per 10 minutes in the published copy keeps it small.
-    thinned, last = [], None
+    # At most one point per 10 minutes keeps the series small.
+    thinned, last, old_days = [], None, set()
+    recent_cutoff = datetime.now(timezone.utc) - timedelta(days=HISTORY_DAYS)
     for h in history:
-        t = datetime.fromisoformat(h["t"])
-        if last is None or (t - last).total_seconds() >= 600 or h is history[-1]:
+        try:
+            t = datetime.fromisoformat(h["t"])
+        except ValueError:
+            continue
+        # Keep the recent chart smooth; compact older history to one sample
+        # per day while retaining every day and every provider identity.
+        day = t.astimezone().date().isoformat()
+        keep_old = t < recent_cutoff and day not in old_days
+        if keep_old:
+            old_days.add(day)
+        if keep_old or last is None or (t - last).total_seconds() >= 600 or h is history[-1]:
             thinned.append(h)
             last = t
     return thinned
@@ -410,33 +505,28 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--print", action="store_true")
     args = parser.parse_args()
-    try:
-        env_id = (USERDATA / "environment-id").read_text(encoding="utf-8").strip()
-    except OSError:
-        env_id = None
-    projects, activity, automations = database(env_id)
+    projects, activity = database()
     session = issue_session()
     try:
         summary, providers, sources = read_t3(session["token"])
     finally:
         revoke_session(session)
     lim = limits(providers, sources)
-    pool = codex_pool(lim["codex"])
     now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    history = update_history(pool, lim["claude"], now_iso)
+    history = update_history(lim["claude"], now_iso)
+    published_spend = merge_spend_history(spend(summary))
     data = {
         "version": 1,
         "generatedAt": now_iso.replace("+00:00", "Z"),
-        "timeZone": TIME_ZONE,
         "projects": projects,
         "activity": activity,
-        "spend": spend(summary),
-        "limits": {**lim, "pool": pool},
-        "limitHistory": history,
+        # Merge before publishing so a provider removed from T3 remains in the
+        # Usage chart and monthly total forever as part of the historical data.
+        "spend": published_spend,
+        "limits": lim,
         "codexSeries": codex_series(),
         "claudeSeries": claude_series(history, lim["claude"]),
-        "aiActivity": ai_activity(),
-        "automations": automations,
+        "aiActivity": ai_activity(published_spend),
     }
     if args.print:
         print(json.dumps(data, ensure_ascii=False)[:4000])

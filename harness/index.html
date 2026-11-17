@@ -11,6 +11,9 @@
     /settings/appearance   Settings -> Appearance (t3+ section is appended)
     /usage                 T3's Usage page chart (UsageProviderChart.tsx markup, synthetic data)
   Query: ?seed=<settings json>  ?config=<t3plus.json>  ?view=<profile view json>  ?bots=<json>  ?light
+         ?group   adds the Assistant group fixture: more "ops" threads and a Settled shelf. bot1, p-ops
+                  and "Worker:" stand for the real Assistant ids; serve.mjs swaps them in (fixture.mjs).
+         ?preview=expanded   renders the local interactive browser-preview fixture.
 -->
 <html lang="en" class="dark">
   <head>
@@ -77,7 +80,11 @@
       [data-slot="scroll-area"] { position: relative; min-height: 0; flex: 1; overflow: hidden; }
       [data-slot="scroll-area-viewport"] { height: 100%; overflow: auto; scrollbar-width: none; }
       [data-slot="sidebar-content"] > [data-slot="sidebar-group"] { padding: 0 var(--sidebar-content-inset); }
-      ul.rows { margin: 0; padding: 0; list-style: none; }
+      ul.rows { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
+      /* SidebarSectionHeader (Sidebar.tsx): the Settled shelf's label and count. */
+      .shelf-header { display: flex; height: 2rem; align-items: center; gap: 0.375rem; padding: 0 0.625rem; margin-top: 0.5rem;
+        font-size: 0.75rem; font-weight: 500; color: var(--sidebar-muted-foreground); }
+      .shelf-header span { font-variant-numeric: tabular-nums; opacity: 0.7; }
       [data-slot="sidebar-footer"] { display: flex; align-items: center; gap: 0.25rem; padding: 0.25rem var(--sidebar-content-inset) var(--sidebar-content-inset); }
       [data-slot="sidebar-footer"] .spacer { flex: 1; }
       [data-slot="sidebar-footer"] .round { border-radius: 999px; background: var(--accent); color: var(--foreground); }
@@ -131,6 +138,14 @@
       .workspace-header .tools .icon-btn.on { background: var(--accent); }
 
       [data-workspace-area="conversation"] { position: relative; display: flex; min-height: 0; flex: 1; flex-direction: column; background: var(--background); }
+      .chat-layout { display: flex; min-height: 0; flex: 1; }
+      .chat-layout > [data-workspace-area="conversation"] { min-width: 0; }
+      .details-panel { width: 17.5rem; flex: none; padding: 0.75rem; overflow: auto; border-left: 1px solid var(--border); }
+      [data-thread-details-card] { border: 1px solid var(--border); border-radius: 0.75rem; background: var(--card); }
+      [data-thread-details-card] > [data-slot="scroll-area-viewport"] { max-height: 30rem; overflow: auto; }
+      [data-thread-details-card] > [data-slot="scroll-area-viewport"] > div { padding: 0.75rem; }
+      .native-details { padding-bottom: 0.75rem; color: var(--muted-foreground); font-size: 0.75rem; }
+      .native-details strong { display: block; margin-bottom: 0.25rem; color: var(--foreground); font-size: 0.8125rem; }
       .timeline { min-height: 0; flex: 1; overflow: auto; padding: 1.5rem 1.5rem 13rem; scrollbar-width: none; }
       .turn { max-width: 42rem; margin: 0 auto 1.25rem; font-size: 0.875rem; line-height: 1.65; }
       .turn.user { display: flex; justify-content: flex-end; }
@@ -170,6 +185,32 @@
       .composer-env { display: flex; max-width: 42rem; margin: 0.375rem auto 0; padding: 0 0.75rem; justify-content: space-between;
         font-size: 0.8125rem; color: var(--muted-foreground); pointer-events: auto; }
       .composer-env span { display: inline-flex; align-items: center; gap: 0.375rem; }
+
+      /* Browser preview fixture: this is deliberately a small, interactive
+         fake page inside T3's preview surface so screenshots show the
+         extension's frame and controls without contacting a real site. */
+      .preview-chat-column { position: relative; display: flex; min-height: 0; flex: 1; flex-direction: column; }
+      .preview-chat-canvas { position: relative; display: flex; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
+      .preview-browser-layer { position: absolute; inset: 0; z-index: 40; pointer-events: none; }
+      .preview-browser-surface { position: absolute; inset: 0; overflow: hidden; border-radius: 0 0 12px 12px; background: #f8fafc; color: #172033; font: 13px/1.45 Inter, system-ui, sans-serif; pointer-events: auto; }
+      .preview-browser-bar { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; background: #e8edf5; border-bottom: 1px solid #d2d9e5; }
+      .preview-browser-dots { display: flex; gap: 4px; }
+      .preview-browser-dots i { width: 7px; height: 7px; border-radius: 50%; background: #aab5c5; }
+      .preview-browser-url { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 4px 9px; border: 1px solid #d1d9e5; border-radius: 999px; background: #f7f9fc; color: #667085; font-size: 11px; }
+      .preview-browser-content { height: calc(100% - 34px); overflow: auto; padding: 18px 20px 30px; background: linear-gradient(135deg, #f8fafc 0%, #eef4ff 100%); }
+      .preview-browser-brand { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; color: #24324a; font-weight: 700; }
+      .preview-browser-brand span { color: #5b6b86; font-weight: 500; }
+      .preview-browser-hero { max-width: 30rem; padding: 18px; border: 1px solid #dce5f2; border-radius: 14px; background: rgb(255 255 255 / 78%); box-shadow: 0 14px 35px rgb(56 83 126 / 12%); }
+      .preview-browser-hero h2 { margin: 0 0 6px; font-size: 20px; letter-spacing: -0.02em; }
+      .preview-browser-hero p { margin: 0 0 14px; color: #64748b; }
+      .preview-browser-hero button { padding: 7px 11px; border: 0; border-radius: 7px; background: #4f6ff0; color: #fff; cursor: pointer; }
+      .preview-browser-status { margin-top: 12px; color: #53627a; font-size: 11px; }
+      .preview-browser-card-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+      .preview-browser-card { padding: 12px; border: 1px solid #dce5f2; border-radius: 10px; background: rgb(255 255 255 / 70%); color: #53627a; font-size: 11px; }
+      .preview-browser-card strong { display: block; margin-bottom: 4px; color: #273650; font-size: 13px; }
+      [data-preview-mini-player-resize] { position: absolute; pointer-events: auto; }
+      [data-preview-mini-player-resize="east"] { inset: 0 -3px 0 auto; width: 6px; cursor: ew-resize; }
+      [data-preview-mini-player-resize="southwest"] { inset: auto auto -3px -3px; width: 8px; height: 8px; cursor: nesw-resize; }
 
       /* Settings page */
       .settings-scroll { min-height: 0; flex: 1; overflow: auto; }
@@ -213,10 +254,16 @@
         panelBottom: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 15h18"/>',
         panelRight: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/>',
         loader: '<path d="M21 12a9 9 0 1 1-6.219-8.56"/>',
+        // T3's status icons (SidebarThreadRow.tsx TOP_STATUS_ICONS).
+        circleDashed: '<path d="M10.1 2.182a10 10 0 0 1 3.8 0"/><path d="M13.9 21.818a10 10 0 0 1-3.8 0"/><path d="M17.609 3.721a10 10 0 0 1 2.69 2.7"/><path d="M2.182 13.9a10 10 0 0 1 0-3.8"/><path d="M20.279 17.609a10 10 0 0 1-2.7 2.69"/><path d="M21.818 10.1a10 10 0 0 1 0 3.8"/><path d="M3.721 6.391a10 10 0 0 1 2.7-2.69"/><path d="M6.391 20.279a10 10 0 0 1-2.69-2.7"/>',
+        circleDotDashed: '<path d="M10.1 2.182a10 10 0 0 1 3.8 0"/><path d="M13.9 21.818a10 10 0 0 1-3.8 0"/><path d="M17.609 3.721a10 10 0 0 1 2.69 2.7"/><path d="M2.182 13.9a10 10 0 0 1 0-3.8"/><path d="M20.279 17.609a10 10 0 0 1-2.7 2.69"/><path d="M21.818 10.1a10 10 0 0 1 0 3.8"/><path d="M3.721 6.391a10 10 0 0 1 2.7-2.69"/><path d="M6.391 20.279a10 10 0 0 1-2.69-2.7"/><circle cx="12" cy="12" r="1"/>',
+        circleCheck: '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+        shieldQuestion: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="M9.1 9a3 3 0 0 1 5.82 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
         alarm: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2"/><path d="M5 3 2 6"/><path d="m22 6-3-3"/>',
         alert: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/>',
         back: '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
         palette: '<circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/>',
+        close: '<path d="m6 6 12 12M18 6 6 18"/>',
       };
       const icon = (name, cls = "") => `<svg class="i ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
       const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
@@ -227,6 +274,12 @@
       const route = location.pathname.split("/").filter(Boolean);
       const currentKey = route.length === 2 ? route.join(":") : null;
       const isSettings = route[0] === "settings";
+      const previewMode = params.get("preview");
+      const main = document.getElementById("main");
+      const header = (crumbs) => `<header class="workspace-header"><div class="crumbs">${crumbs}</div>
+        <div class="tools"><button type="button" class="icon-btn on" aria-label="Logs">${icon("logs")}</button>
+        <button type="button" class="icon-btn" aria-label="Terminal">${icon("panelBottom")}</button>
+        <button type="button" class="icon-btn" aria-label="Right panel">${icon("panelRight")}</button></div></header>`;
 
       // ---- Thread rows: SidebarThreadRow card variant ----
       // { key, project, fav: [initials, color], title, pinned, time, status: [kind, label, extra], branch, machine }
@@ -245,22 +298,37 @@
         { key: "env2:n2", seen: true, project: "notes", fav: ["N", "#16a34a"], title: "Card collection binder", time: "19h", branch: "master" },
         { key: "env1:g1", seen: true, project: "github", fav: ["GB", "#4b5563"], title: "Sidebar redesign review", time: "1d" },
       ];
-      const STATUS_ICON = { working: "loader", approval: "alert", woke: "alarm", done: "alert", waiting: "alarm" };
+      // Assistant group fixture: threads the "ops" bot (env1:bot1) started, mixed into T3's list
+      // the way T3 orders them, plus a Settled shelf. t3+ lifts the ops rows under the bot.
+      if (params.has("group")) {
+        THREADS.splice(7, 0,
+          { key: "env1:o1", project: "ops", fav: ["OP", "#0e9f6e"], title: "Draft the release notes", status: ["working", "Working", "2m"], branch: "main" },
+          { key: "env1:o3", seen: true, project: "ops", fav: ["OP", "#0e9f6e"], title: "Worker: check tomorrow's calendar", time: "1m" });
+        THREADS.push(
+          { key: "env1:o2", seen: true, project: "ops", fav: ["OP", "#0e9f6e"], title: "Compare two hosting plans", time: "3h" },
+          { key: "env1:o6", project: "ops", fav: ["OP", "#0e9f6e"], title: "Pick a venue for the reunion", status: ["done", "Done"] },
+          { shelf: "Working", count: 1 },
+          { key: "env1:o4", project: "ops", fav: ["OP", "#0e9f6e"], title: "Sort the shared photo album", status: ["working", "Working", "6m"], branch: "main", parent: "shelf:working" },
+          { shelf: "Settled", count: 1 },
+          { key: "env1:o5", seen: true, project: "ops", fav: ["OP", "#0e9f6e"], title: "Archive old invoices", time: "2d", parent: "shelf:settled" });
+      }
+      const STATUS_ICON = { working: "circleDashed", approval: "shieldQuestion", woke: "alarm", done: "circleCheck", waiting: "circleDotDashed" };
       function cardRow(t) {
+        if (t.shelf) return `<li class="list-none shelf"><div data-sidebar-row="shelf:${esc(t.shelf.toLowerCase())}" class="shelf-header">${esc(t.shelf)} <span>${t.count}</span></div></li>`;
         const status = t.status ? t.status[1] : null;
         const label = [t.title, status, t.project].filter(Boolean).join(", ");
         const trail = `<span aria-hidden="true" class="trail">${t.machine ? icon("monitor") : ""}${icon("monitor")}${icon("provider")}</span>`;
         const slot = t.status
-          ? `<span class="st ${t.status[0]}">${icon(STATUS_ICON[t.status[0]])}${t.status[1]}${t.status[2] ? ` <span aria-hidden="true">${t.status[2]}</span>` : ""}</span>`
+          ? `<span class="st ${t.status[0]} inline-flex items-center gap-1 font-medium">${icon(STATUS_ICON[t.status[0]])}${t.status[1]}${t.status[2] ? `<span aria-hidden="true">${t.status[2]}</span>` : ""}</span>`
           : `<span>${t.time}</span>`;
-        const meta = t.branch ? `<div class="meta"><span class="branch">${esc(t.branch)}</span>${trail}</div>` : "";
+        const meta = t.branch ? `<div class="meta mt-0.5"><span class="branch">${esc(t.branch)}</span>${trail}</div>` : "";
         return `<li data-thread-item="${esc(t.key)}" class="list-none">
-          <div role="button" tabindex="0" data-sidebar-row="${esc(t.key)}" aria-label="${esc(label)}" data-testid="sidebar-row-card"${t.key === currentKey ? ' aria-current="page"' : ""}>
+          <div role="button" tabindex="0" data-sidebar-row="${esc(t.key)}"${t.parent ? ` data-sidebar-parent="${esc(t.parent)}"` : ""} aria-label="${esc(label)}" data-testid="sidebar-row-card"${t.key === currentKey ? ' aria-current="page"' : ""}>
             <span class="sr-only">${esc(t.title)}</span>
             <div class="row-body relative z-10${t.branch ? "" : " compact"}">
-              <div class="line1"><span class="fav" style="--fav:${t.fav[1]}">${t.fav[0]}</span>${t.pinned ? `<span class="pin">${icon("pin", "s3")}</span>` : ""}
-                <span class="project">${esc(t.project)}</span><span class="slot group/sidebar-status-slot">${slot}</span></div>
-              <div class="line2"><span aria-hidden="true" dir="auto" class="title ${t.key === currentKey || !t.seen ? "font-medium text-foreground" : "font-normal text-foreground/75"}">${esc(t.title)}</span>${t.branch ? "" : trail}</div>
+              <div class="line1 h-5"><span class="fav" style="--fav:${t.fav[1]}">${t.fav[0]}</span>${t.pinned ? `<span class="pin">${icon("pin", "s3")}</span>` : ""}
+                <span class="project truncate">${esc(t.project)}</span><span class="slot group/sidebar-status-slot"><span class="flex items-center">${slot}</span></span></div>
+              <div class="line2 mt-1"><span aria-hidden="true" dir="auto" class="title ${t.key === currentKey || !t.seen ? "font-medium text-foreground" : "font-normal text-foreground/75"}">${esc(t.title)}</span>${t.branch ? "" : trail}</div>
               ${meta}
             </div>
           </div>
@@ -276,6 +344,60 @@
           <div data-slot="scroll-area"><div data-slot="scroll-area-viewport"><nav class="settings-nav">
             <a href="#">${icon("gear")} General</a><a href="#" aria-current="page">${icon("palette")} Appearance</a>
             <a href="#">${icon("provider")} Providers</a><a href="#">${icon("monitor")} Computers</a></nav></div></div>`;
+      } else if (previewMode) {
+        // The preview fixture shares the regular thread sidebar so the
+        // screenshot includes the same context as a real T3 chat.
+        inner.innerHTML = `${topbar}
+          <div class="w-full shrink-0"><div data-slot="sidebar-group" class="search-group"><div class="search">
+            <div class="search-field">${icon("search")}<span>Search</span></div>
+            <button type="button" class="icon-btn" aria-label="Filter">${icon("filter")}</button>
+            <button type="button" class="icon-btn" aria-label="Add project">${icon("folderPlus")}</button>
+            <button type="button" class="icon-btn" aria-label="New thread">${icon("pen")}</button></div></div></div>
+          <div data-slot="scroll-area"><div data-slot="scroll-area-viewport"><div data-sidebar="content" data-slot="sidebar-content"><div data-slot="sidebar-group">
+            <ul class="rows" role="presentation" id="thread-list">${THREADS.map(cardRow).join("")}</ul>
+          </div></div></div></div>
+          <div data-slot="sidebar-footer"><button type="button" class="icon-btn" aria-label="Settings">${icon("gear")}</button>
+            <button type="button" class="icon-btn" aria-label="Pull requests">${icon("pr")}</button><button type="button" class="icon-btn" aria-label="Usage">${icon("chart")}</button><span class="spacer"></span>
+            <button type="button" class="icon-btn round" aria-label="Update">${icon("upCircle")}</button></div>`;
+        const previewTurn = (html, user) => `<div class="turn${user ? " user" : ""}"><div>${html}</div></div>`;
+        main.innerHTML = `${header('<span class="fav" style="--fav:#4f6ff0">PR</span><span class="muted">preview-lab</span><span class="sep">/</span><span>Floating preview test</span>')}
+          <div data-chat-column class="preview-chat-column">
+            <div data-chat-canvas class="preview-chat-canvas">
+              <div data-workspace-area="conversation" role="region" aria-label="Conversation">
+                <div class="timeline">
+                  ${previewTurn("<p>Review the floating browser surface while keeping this conversation usable.</p>", true)}
+                  ${previewTurn("<p>The test page remains interactive inside the mounted preview session. Expand it to fill the chat column, then compact it back to the corner.</p>")}
+                </div>
+              </div>
+              <div data-chat-composer-overlay="true">
+                <div data-slot="composer-shell"><div data-chat-composer-main-surface="true">
+                  <div data-chat-composer-surface="true">
+                    <div data-chat-composer-body="true"><div data-testid="composer-editor" contenteditable="true">Try the browser preview controls.</div></div>
+                    <div data-chat-composer-footer="true"><button type="button" class="icon-btn" aria-label="Attach">${icon("clip")}</button><span class="grow"></span><span class="model">${icon("provider")} Opus 5.5 High</span><button type="button" class="send" aria-label="Send">${icon("arrowUp")}</button></div>
+                  </div>
+                </div></div>
+                <div class="composer-env"><span>${icon("monitor", "s35")} studio-mac</span><span>${icon("shield", "s35")} Auto</span></div>
+              </div>
+              <div class="preview-browser-layer">
+                <section aria-label="Floating browser preview" data-preview-mini-player="browser:preview-lab" style="position:absolute;left:28px;top:56px;width:360px;height:228px;border-radius:14px;pointer-events:none">
+                  <div class="cursor-grab" style="position:absolute;right:10px;top:10px;width:14px;height:14px;pointer-events:auto;z-index:52">
+                    <div role="status" aria-label="Recording preview">Live preview</div>
+                    <div style="position:absolute;right:0;top:0;display:flex;gap:2px;opacity:0;pointer-events:none;background:var(--popover,var(--background));padding:2px;border-radius:7px">
+                      <button type="button" aria-label="Open preview in right panel">${icon("panelRight")}</button>
+                      <button type="button" aria-label="Pop preview into separate window">${icon("upCircle")}</button>
+                      <button type="button" aria-label="Close floating preview">${icon("close")}</button>
+                    </div>
+                  </div>
+                  <div class="preview-browser-surface">
+                    <div class="preview-browser-bar"><span class="preview-browser-dots"><i></i><i></i><i></i></span><span class="preview-browser-url">http://localhost:3000/dashboard</span></div>
+                    <div class="preview-browser-content"><div class="preview-browser-brand"><span>Acme Console</span><span>Preview lab</span></div><div class="preview-browser-hero"><h2>Build status</h2><p>Everything is ready for the next deploy.</p><button type="button" onclick="this.nextElementSibling.textContent='Deployment queued from the live preview.'">Queue deploy</button><div class="preview-browser-status">Click the button to verify page interaction.</div></div><div class="preview-browser-card-row"><div class="preview-browser-card"><strong>18</strong>Open tasks</div><div class="preview-browser-card"><strong>99.9%</strong>Uptime</div><div class="preview-browser-card"><strong>3m</strong>Last deploy</div></div></div>
+                  </div>
+                  <div data-preview-mini-player-resize="east"></div><div data-preview-mini-player-resize="southwest"></div>
+                </section>
+              </div>
+            </div>
+          </div>`;
+        if (previewMode === "expanded") setTimeout(() => document.querySelector(".t3plus-preview-mode")?.click(), 1200);
       } else {
         inner.innerHTML = `${topbar}
           <div class="w-full shrink-0"><div data-slot="sidebar-group" class="search-group"><div class="search">
@@ -294,13 +416,10 @@
       }
 
       // ---- Main pane ----
-      const main = document.getElementById("main");
       const thread = THREADS.find((t) => t.key === currentKey) ?? THREADS[1];
-      const header = (crumbs) => `<header class="workspace-header"><div class="crumbs">${crumbs}</div>
-        <div class="tools"><button type="button" class="icon-btn on" aria-label="Logs">${icon("logs")}</button>
-        <button type="button" class="icon-btn" aria-label="Terminal">${icon("panelBottom")}</button>
-        <button type="button" class="icon-btn" aria-label="Right panel">${icon("panelRight")}</button></div></header>`;
-      if (route[0] === "draft") {
+      if (previewMode) {
+        // The preview fixture was rendered alongside the shared sidebar above.
+      } else if (route[0] === "draft") {
         main.innerHTML = `${header('<span class="muted">New thread</span>')}
           <div class="hero-wrap">
             <div data-workspace-area="conversation" role="region" aria-label="Conversation"><div class="h-full min-h-0 bg-background"></div></div>
@@ -377,7 +496,7 @@
       } else {
         const turn = (html, user) => `<div class="turn${user ? " user" : ""}"><div>${html}</div></div>`;
         main.innerHTML = `${header(`<span class="fav" style="--fav:${thread.fav[1]}">${thread.fav[0]}</span><span class="muted">${esc(thread.project)}</span><span class="sep">/</span><span>${esc(thread.title)}</span>`)}
-          <div data-workspace-area="conversation" role="region" aria-label="Conversation">
+          <div class="chat-layout"><div data-workspace-area="conversation" role="region" aria-label="Conversation">
             <div class="timeline">
               ${turn("<p>After login the app sends people back to <code>/</code> instead of the page they came from. Can you fix it?</p>", true)}
               ${turn(`<div class="work">${icon("pen", "s35")} Edited 2 files, ran 1 command</div><p>The redirect target was read from <code>document.referrer</code>, which is empty after the OAuth round trip. I now store the original path in the <code>state</code> parameter and read it back in the callback.</p><p>Added a test for a deep link with a query string. All 48 auth tests pass.</p>`)}
@@ -398,7 +517,10 @@
               </div></div>
               <div class="composer-env"><span>${icon("monitor", "s35")} studio-mac</span><span>${icon("shield", "s35")} Auto</span></div>
             </div>
-          </div>`;
+          </div><aside class="details-panel" data-workspace-area="details"><div data-thread-details-card="true" data-project-id="p-ops"><div data-slot="scroll-area-viewport"><div>
+            <section class="native-details" aria-label="Workspace"><strong>Workspace</strong>studio-mac</section>
+            <section class="native-details" aria-label="Usage limits"><strong>Usage limits</strong>Weekly 58% left</section>
+          </div></div></div></aside></div>`;
       }
     </script>
   </body>
