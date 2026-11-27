@@ -4,6 +4,13 @@ Short history of t3+ releases. Details live in README.md; plans in ROADMAP.md.
 
 ## Unreleased
 
+## 0.19.1 (2026-11-27)
+
+- Home widgets are back on the new-thread page. T3's November 26 update
+  (pingdotgg/t3code da36859c) changed how it centers the new-thread composer,
+  and t3+ no longer recognized the page. t3+ now recognizes both the new and
+  the old layout.
+
 ## 0.19.0 (2026-11-17)
 
 **Faster.** Much less work in your T3 tab. Measured with the new

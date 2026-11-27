@@ -365,10 +365,10 @@ export function createT3Plus(deps) {
     watchPortals();
   }
 
-  /** T3's draft hero: the composer overlay is centered (items-center) instead of docked at the bottom. */
+  /** T3's draft hero: the composer overlay fills the pane instead of docking at the bottom. */
   function findHero() {
     const overlay = doc.querySelector(T3_SELECTORS.composerOverlay);
-    if (!overlay || !overlay.classList.contains("items-center")) return null;
+    if (!overlay || !T3_SELECTORS.heroOverlayClasses.some((c) => overlay.classList.contains(c))) return null;
     const stack = overlay.querySelector(T3_SELECTORS.composerStack);
     return stack ? { overlay, stack } : null;
   }

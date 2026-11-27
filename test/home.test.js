@@ -142,15 +142,18 @@ test("usage keeps a provider in the historical legend after its last usage leave
   assert.deepEqual(t.series.at(-1).values, Array(14).fill(0));
 });
 
-// T3's draft hero (ChatView.tsx): the overlay is centered (items-center) and the
-// composer stack holds the composer; the headline hangs above it.
+// T3's draft hero (ChatView.tsx @ da36859c): the overlay fills the pane (inset-0, a flex
+// column) and the composer stack holds the composer; the headline hangs above it.
+const HERO_CLASS = "pointer-events-none absolute inset-0 z-20 flex flex-col before:basis-[max(0px,calc(50%-5rem))] *:shrink-0";
+const OLD_HERO_CLASS = "pointer-events-none absolute inset-0 z-20 flex items-center";
+const DOCKED_CLASS = "pointer-events-none absolute inset-x-0 bottom-0 z-20";
 const HERO = `
   <div data-slot="sidebar-inner"><ul>
     <li data-thread-item="env1:a1"><div role="button" data-sidebar-row="env1:a1" aria-label="Fix login, billing"><span class="sr-only">Fix login</span>
       <div class="relative z-10"><div><span>billing</span><span class="group/sidebar-status-slot"><span>5h</span><button type="button">Settle</button></span></div><div><span aria-hidden="true">Fix login</span></div></div></div></li>
   </ul></div>
   <main><div data-workspace-area="conversation"><div class="h-full min-h-0 bg-background"></div></div>
-    <div data-chat-composer-overlay="true" class="pointer-events-none absolute inset-0 z-20 flex items-center">
+    <div data-chat-composer-overlay="true" class="${HERO_CLASS}">
       <div class="chat-composer-lane w-full"><div data-chat-composer-stack="true" class="relative">
         <div class="absolute inset-x-0 bottom-full"><h1>What should we build?</h1></div>
         <div class="relative z-10"><div data-chat-composer-surface="true"><div data-chat-composer-body="true"><div data-testid="composer-editor"></div></div></div></div>
@@ -191,12 +194,24 @@ test("app: four compact cards mount under the hero composer (and only there) and
 });
 
 test("app: no widgets in a normal thread (composer docked at the bottom)", async () => {
-  const dom = createDom("/env1/a1", HERO.replace("flex items-center", "bottom-0 inset-x-0"));
+  const dom = createDom("/env1/a1", HERO.replace(HERO_CLASS, DOCKED_CLASS));
   const { app } = createApp(dom, undefined, { homeFeed: { readCache: async () => null, load: async () => null } });
   await app.start();
   app.watcher.flush();
   assert.equal(dom.window.document.getElementById(T3PLUS.homeId), null);
   app.stop();
+});
+
+test("app: the widgets also mount on older T3's centered hero (items-center)", async () => {
+  const dom = createDom("/draft/abc", HERO.replace(HERO_CLASS, OLD_HERO_CLASS));
+  const { app } = createApp(dom, undefined, { homeFeed: { readCache: async () => null, load: async () => null } });
+  try {
+    await app.start();
+    app.watcher.flush();
+    assert.ok(dom.window.document.getElementById(T3PLUS.homeId));
+  } finally {
+    app.stop();
+  }
 });
 
 test("app: the widgets are as wide as the composer, but never wider than the room on its narrower side of the pane", async () => {

@@ -1807,9 +1807,17 @@ html[data-t3plus-backdrop] [data-workspace-area="conversation"] > .bg-background
    headline, composer and widgets and sets --t3plus-hero-top so the whole block
    sits centered (slightly low) in the pane. T3's headline still hangs above
    the composer stack. */
+html[data-t3plus-home] [data-chat-composer-overlay="true"]:is(.inset-0, .items-center) {
+  padding-top: var(--t3plus-hero-top, clamp(7rem, 18vh, 11rem));
+}
+/* Older T3: a centered flex row. */
 html[data-t3plus-home] [data-chat-composer-overlay="true"].items-center {
   align-items: flex-start !important;
-  padding-top: var(--t3plus-hero-top, clamp(7rem, 18vh, 11rem));
+}
+/* Current T3 (flex column): its ::before spacer centers the composer; the
+   padding above replaces it. */
+html[data-t3plus-home] [data-chat-composer-overlay="true"].inset-0::before {
+  display: none !important;
 }
 
 /* ---------- Home widgets ---------- */

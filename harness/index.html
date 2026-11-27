@@ -156,12 +156,15 @@
 
       /* Composer (ChatView overlay, ComposerSurface.Shell: its ::before is T3's glass layer). */
       [data-chat-composer-overlay="true"] { position: absolute; inset: auto 0 0 0; padding: 0 1.5rem 0.75rem; pointer-events: none; }
-      /* Draft hero (ChatView.tsx): the overlay is a sibling of the conversation area, centered (items-center). */
+      /* Draft hero (ChatView.tsx @ da36859c): the overlay is a sibling of the conversation area, a flex column
+         that fills the pane (inset-0); its ::before spacer centers the composer. */
       .hero-wrap { position: relative; display: flex; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
       .hero-wrap > [data-workspace-area="conversation"] { flex: 1; }
       .hero-wrap .bg-background { height: 100%; background: var(--background); }
       [data-chat-composer-overlay="true"].hero-overlay { inset: 0; display: flex; padding: 0 1.5rem; z-index: 20; }
-      [data-chat-composer-overlay="true"].items-center { align-items: center; }
+      [data-chat-composer-overlay="true"].hero-overlay { flex-direction: column; }
+      [data-chat-composer-overlay="true"].hero-overlay::before { content: ""; flex: 0 0 max(0px, calc(50% - 5rem)); }
+      [data-chat-composer-overlay="true"].hero-overlay > * { flex-shrink: 0; }
       .hero-lane { width: 100%; }
       [data-chat-composer-stack="true"] { position: relative; z-index: 10; width: 100%; max-width: 46rem; margin: 0 auto; pointer-events: auto; }
       .hero-headline { position: absolute; left: 0; right: 0; bottom: 100%; padding-bottom: 1rem; text-align: center; }
@@ -423,7 +426,7 @@
         main.innerHTML = `${header('<span class="muted">New thread</span>')}
           <div class="hero-wrap">
             <div data-workspace-area="conversation" role="region" aria-label="Conversation"><div class="h-full min-h-0 bg-background"></div></div>
-            <div data-chat-composer-overlay="true" class="hero-overlay items-center">
+            <div data-chat-composer-overlay="true" class="hero-overlay inset-0 flex flex-col">
               <div class="hero-lane"><div data-chat-composer-stack="true">
                 <div class="hero-headline"><h1>What should we build?</h1><p>or start without a project</p></div>
                 <div data-slot="composer-shell"><div data-chat-composer-main-surface="true">

@@ -38,8 +38,11 @@ export const T3_SELECTORS = Object.freeze({
   /** Conversation pane behind the timeline and composer: hosts the t3+ backdrop layer. */
   conversationArea: '[data-workspace-area="conversation"]',
   /** Composer overlay; its parent is the fallback backdrop host. On the new-thread
-   *  page (draft hero) it is centered with `items-center` (ChatView.tsx). */
+   *  page (draft hero) it fills the pane (`inset-0`, a flex column since T3 @ da36859c,
+   *  2026-11-26; `items-center` before); in a thread it is docked (`inset-x-0 bottom-0`). */
   composerOverlay: '[data-chat-composer-overlay="true"]',
+  /** Any of these classes on the composer overlay marks the draft hero (current, then older T3). */
+  heroOverlayClasses: Object.freeze(["inset-0", "items-center"]),
   /** Where T3's chat composer lives (ChatView.tsx: the overlay is workspace area "composer"). Editors
    *  outside it (e.g. the font preview on Settings > Appearance) are not chat composers. */
   chatComposerArea: '[data-chat-composer-overlay="true"], [data-workspace-area="composer"], [data-workspace-area="conversation"]',
